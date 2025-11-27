@@ -1,6 +1,5 @@
 import dearpygui.dearpygui as dpg
 import numpy as np
-from PIL import Image
 
 from environment import TerrainEnv
 from rl_agent import QLearningAgent
@@ -14,7 +13,7 @@ from settings import GRID_SIZE, RL_EPISODES, IL_EPISODES, GLOBAL_SEED, MAX_STEPS
 class RobotSimulatorApp:
     def __init__(self):
         set_global_seed(GLOBAL_SEED)
-        self.env = TerrainEnv(size=GRID_SIZE)
+        self.env = TerrainEnv()
         self.rl_agent = None
         self.il_agent = None
         self.texture_tag = "texture"
@@ -72,9 +71,8 @@ class RobotSimulatorApp:
         scale = WINDOW_WIDTH // GRID_SIZE
         
         # Генерируем изображение и получаем данные
-        image_data = grid_to_image(grid, scale=scale)
+        image_data = grid_to_image(grid,scale=scale)
         
-        # Преобразуем данные для DearPyGui
         # DearPyGui ожидает flat массив нормализованных значений [0, 1]
         image_data_float = image_data.astype(np.float32) / 255.0
         
@@ -100,6 +98,8 @@ class RobotSimulatorApp:
         global GRID_SIZE, RL_EPISODES, IL_EPISODES, MAX_STEPS, TIMEOUT, GLOBAL_SEED
 
         GRID_SIZE = dpg.get_value(self.grid_size_input)
+        self.env.set_size(size=GRID_SIZE)
+        self.env.reset()
         MAX_STEPS = dpg.get_value(self.max_steps_input)
         RL_EPISODES = dpg.get_value(self.rl_episodes_input)
         IL_EPISODES = dpg.get_value(self.il_episodes_input)

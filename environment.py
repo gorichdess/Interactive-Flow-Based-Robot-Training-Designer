@@ -7,6 +7,9 @@ class TerrainEnv:
         self.external_map = terrain_map
         self.reset()
 
+    def set_size(self,size):
+        self.size = size
+
     def reset(self):
         self.grid = np.zeros((self.size, self.size)) if self.external_map is None else np.copy(self.external_map)
         self.start = (0, 0)
