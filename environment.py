@@ -21,10 +21,15 @@ class TerrainEnv:
 
     def generate_random(self):
         if self.external_map is None:
+            self.grid[:] = 0 
+            self.grid[self.start] = 0 # Start
+            self.grid[self.goal] = 2  # Goal
+            
             for x in range(self.size):
                 for y in range(self.size):
                     if (x, y) not in [self.start, self.goal]:
                         rnd = random.random()
+                        
                         if rnd < 0.05:
                             self.grid[x, y] = 3  # Mountain
                         elif rnd < 0.1:

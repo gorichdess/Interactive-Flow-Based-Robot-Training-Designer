@@ -7,7 +7,7 @@ from il_agent import ImitationLearner
 from trainer import train_rl_agent, train_il_agent, evaluate_agent
 from renderer import grid_to_image
 from utils import set_global_seed
-from settings import GRID_SIZE, RL_EPISODES, IL_EPISODES, GLOBAL_SEED, MAX_STEPS, TIMEOUT
+from settings import GRID_SIZE, RL_EPISODES, IL_EPISODES, GLOBAL_SEED, MAX_STEPS, TIMEOUT, WINDOW_SIZE
 
 
 class RobotSimulatorApp:
@@ -20,7 +20,7 @@ class RobotSimulatorApp:
 
     def setup(self):
         dpg.create_context()
-        dpg.create_viewport(title="Robot Terrain Learning", width=1000, height=700)
+        dpg.create_viewport(title="Robot Terrain Learning", width=1000, height=820)
 
         self.create_main_window()
         self.create_controls_window()
@@ -32,18 +32,19 @@ class RobotSimulatorApp:
         dpg.destroy_context()
         
     def create_main_window(self):
-        with dpg.window(label="Terrain Visualization", pos=(0, 0), width=610, height=700):
-            # Создаем текстуру для изображения
+        self.env.generate_random()
+        with dpg.window(label="Terrain Visualization", pos=(0, 0), width=610, height=810):
+            #Creating a texture for an image
             with dpg.texture_registry():
-                # Создаем пустую текстуру (будет обновляться позже)
+                #Create an empty texture
                 self.texture_tag = dpg.add_raw_texture(
-                    width=600, 
-                    height=600, 
+                    width=WINDOW_SIZE, 
+                    height=WINDOW_SIZE, 
                     default_value=[],
                     format=dpg.mvFormat_Float_rgb
                 )
             
-            # Отображаем изображение
+            #Displaying an image
             dpg.add_image(self.texture_tag)
 
     def create_controls_window(self):
@@ -55,7 +56,14 @@ class RobotSimulatorApp:
 
     def create_settings_window(self):
         with dpg.window(label="Settings", pos=(620,370), width=350, height=280):
-            self.grid_size_input = dpg.add_input_int(label="Grid Size", default_value=GRID_SIZE)
+            self.grid_size_input = dpg.add_input_int(
+                label="Grid Size", 
+                default_value=GRID_SIZE,
+                min_value=2,        #The min size is limited
+                min_clamped=True,
+                max_value=WINDOW_SIZE, #The max size is limited
+                max_clamped=True
+            )
             self.max_steps_input = dpg.add_input_int(label="Max Steps", default_value=MAX_STEPS)
             self.rl_episodes_input = dpg.add_input_int(label="RL Episodes", default_value=RL_EPISODES)
             self.il_episodes_input = dpg.add_input_int(label="IL Episodes", default_value=IL_EPISODES)
@@ -67,17 +75,12 @@ class RobotSimulatorApp:
     def generate_random_terrain(self):  
         self.env.generate_random()
         grid = self.env.get_grid()
-        WINDOW_WIDTH = 600
-        scale = WINDOW_WIDTH // GRID_SIZE
+        scale = WINDOW_SIZE // GRID_SIZE
         
-        # Генерируем изображение и получаем данные
         image_data = grid_to_image(grid,scale=scale)
         
-        # DearPyGui ожидает flat массив нормализованных значений [0, 1]
-        image_data_float = image_data.astype(np.float32) / 255.0
-        
-        # Обновляем текстуру
-        dpg.set_value(self.texture_tag, image_data_float.flatten())
+        #Updating the texture
+        dpg.set_value(self.texture_tag, image_data.flatten())
 
 
     def train_rl(self):
