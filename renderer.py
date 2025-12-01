@@ -33,3 +33,20 @@ def grid_to_image(grid, scale=20, target_size=600):
         
     
     return final_img.astype(np.float32) / 255.0 #DearPyGui expects a flat array of normalized values ​​[0, 1]
+
+def render_trajectory(grid, trajectory, scale=1, target_size=400):
+    #Render grid with trajectory path
+    base_image = grid_to_image(grid, scale, target_size)
+    
+    # Draw trajectory
+    for pos in trajectory:
+        i, j = pos
+        base_image[i*scale:(i+1)*scale, j*scale:(j+1)*scale] = [1.0, 0.0, 0.0]  # Red
+    
+    # Mark start and goal
+    start = trajectory[0]
+    goal = trajectory[-1]
+    base_image[start[0]*scale:(start[0]+1)*scale, start[1]*scale:(start[1]+1)*scale] = [0.0, 0.0, 1.0]  # Blue
+    base_image[goal[0]*scale:(goal[0]+1)*scale, goal[1]*scale:(goal[1]+1)*scale] = [0.0, 1.0, 0.0]  # Green
+    
+    return base_image
