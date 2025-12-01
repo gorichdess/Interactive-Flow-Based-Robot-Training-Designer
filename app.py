@@ -225,7 +225,6 @@ class RobotSimulatorApp:
     def show_node_editor_window(self):
         dpg.show_item(self.node_editor_window_tag)
 
-
     def reset_layout(self):
         # Reset window positions to default
         dpg.set_item_pos(self.main_window_tag, [0, 30])
@@ -273,14 +272,14 @@ class RobotSimulatorApp:
         try:
             self.update_progress(0, "RL Training started...")
             
-            # Simulate progress updates
-            for i in range(10):  # Simulate 10 progress updates
-                progress = i / 10.0
-                self.update_progress(progress, f"RL Training progress: {i*10}%")
-                time.sleep(0.1)
-                dpg.render_dearpygui_frame()
+            # Get settings
+            episodes = dpg.get_value(self.rl_episodes_input)
+            max_steps = dpg.get_value(self.max_steps_input)
+            timeout = dpg.get_value(self.timeout_input)
             
-            self.rl_agent, rewards, success, train_time = train_rl_agent(self.env, RL_EPISODES)
+            self.rl_agent, rewards, success, train_time = train_rl_agent(
+                self.env, episodes, max_steps, timeout
+            )
             
             if success:
                 self.update_progress(1.0, f"RL Training completed in {train_time:.2f}s")
@@ -305,15 +304,13 @@ class RobotSimulatorApp:
         try:
             self.update_progress(0, "IL Training started...")
             
-            # Simulate progress
-            for i in range(5):  # Simulate 5 progress updates
-                progress = i / 5.0
-                self.update_progress(progress, f"IL Training progress: {i*20}%")
-                time.sleep(0.1)
-                dpg.render_dearpygui_frame()
+            # Get settings
+            episodes = dpg.get_value(self.il_episodes_input)
+            timeout = dpg.get_value(self.timeout_input)
             
             self.il_agent, success, total_time, train_time = train_il_agent(
-                self.env, self.rl_agent, IL_EPISODES)
+                self.env, self.rl_agent, episodes, timeout
+            )
             
             if success:
                 self.update_progress(1.0, f"IL Training completed in {total_time:.2f}s")
@@ -326,6 +323,68 @@ class RobotSimulatorApp:
         finally:
             self.is_training = False
 
+    def evaluate_all(self):
+        if self.rl_agent:
+            self.evaluate("RL")
+        if self.il_agent:
+            self.evaluate("IL")
+
+    def update_results_display(self):
+        for agent_type in ["RL", "IL"]:
+            if agent_type in self.evaluation_results:
+                results = self.evaluation_results[agent_type]
+                prefix = agent_type.lower()
+                
+                dpg.set_value(f"{prefix}_Success_Rate", f"{results['success_rate']:.1f}%")
+                dpg.set_value(f"{prefix}_Avg_Reward", f"{results['avg_reward']:.2f}")
+                dpg.set_value(f"{prefix}_Avg_Steps", f"{results['avg_steps']:.1f}")
+                dpg.set_value(f"{prefix}_Eval_Time", f"{results['eval_time']:.2f}s")
+
+    def visualize_agent_path(self, agent, agent_type):
+        try:
+            steps = 0
+            
+            if hasattr(self.env, 'trajectory'):
+                trajectory = self.env.trajectory
+            else:
+                # Fallback: create a simple trajectory from start to current position
+                trajectory = [self.env.start]
+                if steps > 0:
+                    # Try to get current position
+                    if hasattr(self.env, 'position'):
+                        trajectory.append(self.env.position)
+            
+            print(f"Visualizing {agent_type} agent trajectory: {len(trajectory)} steps")
+            print(f"Start: {trajectory[0] if trajectory else 'None'}")
+            print(f"End: {trajectory[-1] if trajectory else 'None'}")
+            
+            # Get terrain grid
+            grid = self.env.get_grid()
+            
+            # Render trajectory on terrain
+            scale = WINDOW_SIZE // self.env.size
+            image_data = render_trajectory(
+                grid, 
+                trajectory, 
+                scale=scale, 
+                target_size=WINDOW_SIZE,
+                line_width=3
+            )
+            
+            # Update texture
+            dpg.set_value(self.texture_tag_output, image_data.flatten())
+            
+            dpg.set_value("output_status", 
+                        f"{agent_type} Agent Path: {len(trajectory)} steps, "
+                        f"Reached goal: {hasattr(self.env, 'reached_goal') and self.env.reached_goal}")
+                            
+        except Exception as e:
+            print(f"Visualization error: {e}")
+            import traceback
+            traceback.print_exc()
+            dpg.set_value("output_status", f"Visualization error: {str(e)}")
+
+    # Also update the evaluate method to store trajectory
     def evaluate(self, agent_type):
         agent = self.rl_agent if agent_type == "RL" else self.il_agent
         if not agent:
@@ -349,49 +408,13 @@ class RobotSimulatorApp:
             # Update results table
             self.update_results_display()
             
-            # Visualize trajectory
+            # Visualize trajectory from the last evaluation run
             self.visualize_agent_path(agent, agent_type)
             
             self.update_progress(1.0, f"{agent_type} evaluation completed!")
             
         except Exception as e:
             self.update_progress(0, f"Evaluation error: {str(e)}")
-
-    def evaluate_all(self):
-        if self.rl_agent:
-            self.evaluate("RL")
-        if self.il_agent:
-            self.evaluate("IL")
-
-    def update_results_display(self):
-        for agent_type in ["RL", "IL"]:
-            if agent_type in self.evaluation_results:
-                results = self.evaluation_results[agent_type]
-                prefix = agent_type.lower()
-                
-                dpg.set_value(f"{prefix}_Success_Rate", f"{results['success_rate']:.1f}%")
-                dpg.set_value(f"{prefix}_Avg_Reward", f"{results['avg_reward']:.2f}")
-                dpg.set_value(f"{prefix}_Avg_Steps", f"{results['avg_steps']:.1f}")
-                dpg.set_value(f"{prefix}_Eval_Time", f"{results['eval_time']:.2f}s")
-
-    def visualize_agent_path(self, agent, agent_type):
-        try:
-            # Create a simple trajectory for demonstration
-            trajectory = [self.env.start]
-            for i in range(min(10, self.env.size)):
-                trajectory.append((i, i))
-            
-            # Render trajectory on terrain
-            grid = self.env.get_grid()
-            scale = WINDOW_SIZE // self.env.size
-            image_data = render_trajectory(grid, trajectory, scale=scale, target_size=WINDOW_SIZE)
-            dpg.set_value(self.texture_tag_output, image_data.flatten())
-            
-            dpg.set_value("output_status", 
-                         f"{agent_type} Agent Path: {len(trajectory)} steps")
-                         
-        except Exception as e:
-            dpg.set_value("output_status", f"Visualization error: {str(e)}")
 
     def apply_settings(self):
         global GRID_SIZE, RL_EPISODES, IL_EPISODES, MAX_STEPS, TIMEOUT, GLOBAL_SEED

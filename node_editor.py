@@ -163,8 +163,6 @@ class NodeEditorApp:
             with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
                 dpg.add_button(label="Train RL", width=150,
                              callback=lambda: self.rl_train_callback(node_id))
-                dpg.add_button(label="Evaluate RL", width=150,
-                             callback=lambda: self.rl_evaluate_callback(node_id))
 
             # Outputs
             with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output) as output_agent_attr:
@@ -198,8 +196,6 @@ class NodeEditorApp:
             with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
                 dpg.add_button(label="Train IL", width=150,
                              callback=lambda: self.il_train_callback(node_id))
-                dpg.add_button(label="Evaluate IL", width=150,
-                             callback=lambda: self.il_evaluate_callback(node_id))
 
             # Outputs
             with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output) as output_agent_attr:
@@ -233,8 +229,10 @@ class NodeEditorApp:
             with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
                 dpg.add_button(label="Show Path", width=150,
                              callback=lambda: self.visualize_callback(node_id))
-                dpg.add_button(label="Clear Vis", width=150,
-                             callback=self.clear_visualization)
+                dpg.add_button(label="Evaluate RL", width=150,
+                             callback=lambda: self.rl_evaluate_callback(node_id))
+                dpg.add_button(label="Evaluate IL", width=150,
+                             callback=lambda: self.il_evaluate_callback(node_id))
         
         self.nodes[node_id] = {
             'type': NodeType.VISUALIZER,
@@ -339,12 +337,6 @@ class NodeEditorApp:
             if not agent_node:
                 missing.append("Agent Policy")
             print(f"[{node_id}] Error: Connect {', '.join(missing)}!")
-
-    def clear_visualization(self):
-        if hasattr(self.simulator, 'texture_tag_output') and hasattr(self.simulator, 'WINDOW_SIZE'):
-            gray = np.ones((self.simulator.WINDOW_SIZE * self.simulator.WINDOW_SIZE * 3)) * 0.8
-            dpg.set_value(self.simulator.texture_tag_output, gray)
-        print("Visualization cleared")
 
     def test_connection(self):
         print("\nActive Connections")
