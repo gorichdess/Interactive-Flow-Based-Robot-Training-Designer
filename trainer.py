@@ -1,7 +1,6 @@
 import numpy as np
 import time
 from tqdm import tqdm
-from collections import defaultdict
 
 # Import the agent classes
 from rl_agent import QLearningAgent
@@ -9,7 +8,30 @@ from il_agent import ImitationLearner
 
 def train_rl_agent(env, episodes, max_steps=1000, timeout=300):
     start_time = time.time()
-    agent = QLearningAgent(env)
+    agent = QLearningAgent(env, alpha=0.1, gamma=0.99, epsilon=0.3)
+    
+    for episode in range(min(5, episodes)):  # Debug first 5 episodes
+        state = env.reset()
+        print(f"\nEpisode {episode}:")
+        print(f"  Initial state: {state}, type: {type(state)}")
+        
+        for step in range(3):  # Debug first 3 steps
+            action = agent.choose_action(state, training=True)
+            next_state, reward, done = env.step(action)
+            print(f"  Step {step}: state={state}, action={action}, next_state={next_state}")
+            
+            if isinstance(state, int) or (isinstance(state, np.ndarray) and state.size == 1):
+                print(f"  WARNING: state is 1D! Converting...")
+                # Convert back to 2D
+                if isinstance(state, int):
+                    x = state // env.size
+                    y = state % env.size
+                else:
+                    x = state.item() // env.size
+                    y = state.item() % env.size
+                print(f"  Converted to 2D: ({x}, {y})")
+            
+            state = next_state
     
     rewards = []
     steps_per_episode = []

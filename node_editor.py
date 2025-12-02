@@ -35,7 +35,7 @@ class NodeEditorApp:
             return
 
         with dpg.window(label="Node Editor", tag=self.node_editor_window_tag,
-                        pos=(410, 620), width=800, height=600):
+                        pos=(400, 30), width=1100, height=610):
             
             dpg.add_text("How to use: Drag from output (Right) to input (Left) to connect nodes")
             dpg.add_text("Right alt + left click a link to delete it.", color=(150, 150, 150))
@@ -43,29 +43,29 @@ class NodeEditorApp:
             
             # Toolbar
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Add Environment", callback=self.add_environment_node)
-                dpg.add_button(label="Add RL Agent", callback=self.add_rl_agent_node)
-                dpg.add_button(label="Add IL Agent", callback=self.add_il_agent_node)
-                dpg.add_button(label="Add Visualizer", callback=self.add_visualizer_node)
-                dpg.add_button(label="Clear All", callback=self.clear_all_nodes)
+                dpg.add_button(label="Environment Node", callback=self.add_environment_node, width=160)
+                dpg.add_button(label="RL Agent Node", callback=self.add_rl_agent_node, width=160)
+                dpg.add_button(label="IL Agent Node", callback=self.add_il_agent_node, width=160)
+                dpg.add_button(label="Visualizer Node", callback=self.add_visualizer_node, width=160)
+                dpg.add_button(label="Clear All Nodes", callback=self.clear_all_nodes, width=160)
             
             dpg.add_separator()
             
-            # Node Editor
+            # Node Editor - smaller height since window is shorter
             with dpg.node_editor(
                 tag=self.node_editor_tag, 
                 callback=self.link_callback,
                 delink_callback=self.delink_callback,
                 minimap=True,
-                minimap_location=dpg.mvNodeMiniMap_Location_BottomRight
+                minimap_location=dpg.mvNodeMiniMap_Location_BottomRight,
+                height=460  # Set height
             ):
                 pass
             
             # Execution controls
             dpg.add_separator()
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Test Connection", callback=self.test_connection)
-                dpg.add_button(label="Print Node Info", callback=self.print_node_info)
+                dpg.add_button(label="Test Connection", callback=self.test_connection, width=200)
 
     def link_callback(self, sender, app_data):
         output_attr_id, input_attr_id = app_data
@@ -227,8 +227,6 @@ class NodeEditorApp:
             
             # Actions
             with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
-                dpg.add_button(label="Show Path", width=150,
-                             callback=lambda: self.visualize_callback(node_id))
                 dpg.add_button(label="Evaluate RL", width=150,
                              callback=lambda: self.rl_evaluate_callback(node_id))
                 dpg.add_button(label="Evaluate IL", width=150,
@@ -310,33 +308,6 @@ class NodeEditorApp:
                 print("Simulator doesn't have evaluate method")
         else:
             print("Error: Train IL agent first!")
-
-    def visualize_callback(self, node_id):
-        env_node = self.find_connected_node(node_id, 'input_env')
-        agent_node = self.find_connected_node(node_id, 'input_agent')
-        
-        if env_node and agent_node:
-            agent_type = self.nodes[agent_node]['type']
-            
-            if agent_type == NodeType.RL_AGENT and hasattr(self.simulator, 'rl_agent') and self.simulator.rl_agent:
-                if hasattr(self.simulator, 'visualize_agent_path'):
-                    self.simulator.visualize_agent_path(self.simulator.rl_agent, "RL")
-                else:
-                    print("Simulator doesn't have visualize_agent_path method")
-            elif agent_type == NodeType.IL_AGENT and hasattr(self.simulator, 'il_agent') and self.simulator.il_agent:
-                if hasattr(self.simulator, 'visualize_agent_path'):
-                    self.simulator.visualize_agent_path(self.simulator.il_agent, "IL")
-                else:
-                    print("Simulator doesn't have visualize_agent_path method")
-            else:
-                print(f"[{node_id}] Error: Connected agent is not trained or unknown type")
-        else:
-            missing = []
-            if not env_node:
-                missing.append("Environment Data")
-            if not agent_node:
-                missing.append("Agent Policy")
-            print(f"[{node_id}] Error: Connect {', '.join(missing)}!")
 
     def test_connection(self):
         print("\nActive Connections")

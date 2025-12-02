@@ -31,13 +31,13 @@ class TerrainEnv:
         
         # Set goal position (bottom-right corner)
         self.goal = (self.size-1, self.size-1)
-        self.grid[self.goal] = 2  # Goal
+        self.grid[self.goal[0]][self.goal[1]] = 2
         
         self.reset()
         
     def reset(self):
         self.position = self.start
-        self.trajectory = [(0,0)]
+        self.trajectory = [self.start]
         self.reached_goal = False
         return self.get_state()
     
@@ -50,6 +50,9 @@ class TerrainEnv:
     def step(self, action):
         i, j = self.position
         
+        # Store old position
+        old_pos = self.position
+        
         # Move based on action
         if action == 0 and i > 0:  # Up
             i -= 1
@@ -59,34 +62,40 @@ class TerrainEnv:
             i += 1
         elif action == 3 and j > 0:  # Left
             j -= 1
-        # If action would move out of bounds, stay in place
         
         # Update position
-        old_pos = self.position
         self.position = (i, j)
         
         # Add to trajectory if position changed
         if self.position != old_pos:
             self.trajectory.append(self.position)
         
+        # Calculate base reward based on terrain
+        terrain_type = self.grid[i, j]
+        if terrain_type == 0:  # Empty
+            base_reward = -0.1
+        elif terrain_type == 1:  # Rough
+            base_reward = -0.5
+        elif terrain_type == 3:  # Mountain
+            base_reward = -1.0
+        elif terrain_type == 4:  # Swamp
+            base_reward = -0.8
+        else:
+            base_reward = -0.1
+        
         # Check if reached goal
         if self.position == self.goal:
             self.reached_goal = True
-            reward = 10.0
+            reward = 100.0  # Large positive reward
             done = True
         else:
-            # Penalty based on terrain type
-            terrain_type = self.grid[i, j]
-            if terrain_type == 0:  # Empty
-                reward = -0.1
-            elif terrain_type == 1:  # Rough
-                reward = -0.5
-            elif terrain_type == 3:  # Mountain
-                reward = -1.0
-            elif terrain_type == 4:  # Swamp
-                reward = -0.8
-            else:
-                reward = -0.1
+            # Add progress reward (closer to goal = better)
+            old_distance = abs(old_pos[0] - self.goal[0]) + abs(old_pos[1] - self.goal[1])
+            new_distance = abs(i - self.goal[0]) + abs(j - self.goal[1])
+            
+            progress_bonus = 0.1 if new_distance < old_distance else -0.1
+            
+            reward = base_reward + progress_bonus
             done = False
         
         return self.get_state(), reward, done
