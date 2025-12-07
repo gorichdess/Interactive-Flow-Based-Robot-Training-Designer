@@ -101,7 +101,7 @@ def render_trajectory(grid, trajectory, scale=20, target_size=600, line_width=3)
                         # Make sure trajectory is visible (yellow)
                         img_uint8[py, px] = [255, 255, 0]  # Yellow
     
-    # Mark start position (blue)
+    # Mark start position
     start = trajectory[0]
     start_x = pad_w + (start[1] + 0.5) * scale
     start_y = pad_h + (start[0] + 0.5) * scale
@@ -115,7 +115,7 @@ def render_trajectory(grid, trajectory, scale=20, target_size=600, line_width=3)
                 if 0 <= px < target_size and 0 <= py < target_size:
                     img_uint8[py, px] = [255, 0, 0]  # Blue
     
-    # Mark end position (green)
+    # Mark end position
     end = trajectory[-1]
     end_x = pad_w + (end[1] + 0.5) * scale
     end_y = pad_h + (end[0] + 0.5) * scale

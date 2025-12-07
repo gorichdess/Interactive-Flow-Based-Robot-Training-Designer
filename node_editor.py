@@ -156,6 +156,65 @@ class NodeEditorApp:
 
     def add_results_node(self):
         self.add_node(ResultsNode, "Results Table", [850, 50])
+
+    def delete_node(self, node_id):
+        if node_id not in self.nodes:
+            print(f"Node {node_id} not found")
+            return
+        
+        try:
+            # Find and delete all links connected to this node
+            links_to_delete = []
+            for link_id, (output_attr_id, input_attr_id) in list(self.links.items()):
+                output_node_id = self.get_node_from_attribute_id(output_attr_id)
+                input_node_id = self.get_node_from_attribute_id(input_attr_id)
+                
+                if output_node_id == node_id or input_node_id == node_id:
+                    links_to_delete.append(link_id)
+            
+            # Delete the links
+            for link_id in links_to_delete:
+                if link_id in self.links:
+                    del self.links[link_id]
+                try:
+                    dpg.delete_item(link_id)
+                except:
+                    pass
+            
+            # Clean up from simulator collections
+            node_type = self.nodes[node_id]['type']
+            
+            if node_type == NodeType.ENVIRONMENT:
+                if node_id in self.simulator.environments:
+                    del self.simulator.environments[node_id]
+            
+            elif node_type == NodeType.RL_AGENT:
+                if node_id in self.simulator.rl_agents:
+                    del self.simulator.rl_agents[node_id]
+            
+            elif node_type == NodeType.IL_AGENT:
+                if node_id in self.simulator.il_agents:
+                    del self.simulator.il_agents[node_id]
+            
+            # Remove from attribute mapping
+            for attr in self.nodes[node_id]['all_attrs']:
+                if attr in self.attribute_to_node:
+                    del self.attribute_to_node[attr]
+            
+            # Remove the node object
+            if node_id in self.node_objects:
+                del self.node_objects[node_id]
+            
+            # Remove the node from nodes dict
+            del self.nodes[node_id]
+            
+            # Finally, delete the DearPyGui item
+            dpg.delete_item(node_id)
+            
+            print(f"Successfully deleted node: {node_id}")
+            
+        except Exception as e:
+            print(f"Error deleting node {node_id}: {e}")
         
     def clear_all_nodes(self):
         for link_id in list(self.links.keys()):
@@ -182,6 +241,16 @@ class BaseNode:
         
     def create_attributes(self):
         raise NotImplementedError
+
+    def create_delete_button(self):
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as delete_attr:
+            dpg.add_button(
+                label="X Delete",
+                width=100,
+                callback=lambda: self.editor.delete_node(self.node_id),
+                tag=f"{self.node_id}_delete_btn"
+            )
+        return delete_attr
 
     def get_output_data(self):
         raise NotImplementedError
@@ -227,6 +296,10 @@ class EnvironmentNode(BaseNode):
         output_types[output_env_instance_attr] = 'Environment'
         all_attrs.append(output_env_instance_attr)
         self.output_env_instance_attr = output_env_instance_attr
+
+        delete_attr = self.create_delete_button()
+        static_attrs['delete'] = delete_attr
+        all_attrs.append(delete_attr)
 
         return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
 
@@ -275,6 +348,10 @@ class RLAgentNode(BaseNode):
         output_types[output_agent_attr] = 'RL Agent'
         all_attrs.append(output_agent_attr)
         self.output_agent_attr = output_agent_attr
+
+        delete_attr = self.create_delete_button()
+        static_attrs['delete'] = delete_attr
+        all_attrs.append(delete_attr)
 
         return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
 
@@ -333,6 +410,10 @@ class ILAgentNode(BaseNode):
         all_attrs.append(output_agent_attr)
         self.output_agent_attr = output_agent_attr
 
+        delete_attr = self.create_delete_button()
+        static_attrs['delete'] = delete_attr
+        all_attrs.append(delete_attr)
+
         return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
 
     def train_il_callback(self):
@@ -385,6 +466,10 @@ class SettingsNode(BaseNode):
         all_attrs.append(output_config_attr)
         self.output_config_attr = output_config_attr
 
+        delete_attr = self.create_delete_button()
+        static_attrs['delete'] = delete_attr
+        all_attrs.append(delete_attr)
+
         return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
 
     def get_output_data(self):
@@ -436,6 +521,10 @@ class VisualizerNode(BaseNode):
             dpg.add_text("Awaiting data...", tag=self.status_tag)
         static_attrs['vis_output'] = vis_output_attr
         all_attrs.append(vis_output_attr)
+
+        delete_attr = self.create_delete_button()
+        static_attrs['delete'] = delete_attr
+        all_attrs.append(delete_attr)
 
         return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
 
@@ -531,6 +620,10 @@ class ResultsNode(BaseNode):
                         dpg.add_text("-", tag=self.tags[metric])
         static_attrs['table'] = table_attr
         all_attrs.append(table_attr)
+
+        delete_attr = self.create_delete_button()
+        static_attrs['delete'] = delete_attr
+        all_attrs.append(delete_attr)
         
         return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
 
