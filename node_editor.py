@@ -238,6 +238,13 @@ class BaseNode:
         self.simulator = simulator_app
         self.editor = node_editor_app
         self.node_type = None
+        self.status = "Ready for use" 
+        self.status_tag = None  
+        
+    def update_status(self, new_status):
+        self.status = new_status
+        if self.status_tag and dpg.does_item_exist(self.status_tag):
+            dpg.set_value(self.status_tag, f"Status: {new_status}")
         
     def create_attributes(self):
         raise NotImplementedError
@@ -251,6 +258,21 @@ class BaseNode:
                 tag=f"{self.node_id}_delete_btn"
             )
         return delete_attr
+    
+    def update_status(self, new_status, color=None):
+        self.status = new_status
+        if self.status_tag and dpg.does_item_exist(self.status_tag):
+            dpg.set_value(self.status_tag, f"Status: {new_status}")
+            if color:
+                dpg.configure_item(self.status_tag, color=color)
+            elif "Error" in new_status:
+                dpg.configure_item(self.status_tag, color=(255, 0, 0))
+            elif "Generating" in new_status or "Training" in new_status:
+                dpg.configure_item(self.status_tag, color=(255, 255, 0))
+            elif "Ready" in new_status or "Generated" in new_status or "Trained" in new_status:
+                dpg.configure_item(self.status_tag, color=(0, 255, 0))
+            else:
+                dpg.configure_item(self.status_tag, color=(255, 255, 255))
 
     def get_output_data(self):
         raise NotImplementedError
@@ -297,6 +319,12 @@ class EnvironmentNode(BaseNode):
         all_attrs.append(output_env_instance_attr)
         self.output_env_instance_attr = output_env_instance_attr
 
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as static_attr:
+            self.status_tag = f"{self.node_id}_status"
+            dpg.add_text(f"Status: {self.status}", tag=self.status_tag)
+        static_attrs['status'] = static_attr
+        all_attrs.append(static_attr)
+
         delete_attr = self.create_delete_button()
         static_attrs['delete'] = delete_attr
         all_attrs.append(delete_attr)
@@ -304,9 +332,14 @@ class EnvironmentNode(BaseNode):
         return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
 
     def generate_terrain_callback(self):
-        config = self.get_input_data('config', 'all')
-        grid_size = config.get('grid_size') if config else None
-        self.simulator.generate_terrain(self.node_id, grid_size=grid_size)
+        self.update_status("Generating...")
+        try:
+            config = self.get_input_data('config', 'all')
+            grid_size = config.get('grid_size') if config else None
+            self.simulator.generate_terrain(self.node_id, grid_size=grid_size)
+            self.update_status("Generated")
+        except Exception as e:
+            self.update_status(f"Error: {str(e)}")
 
     def get_output_data(self):
         return {
@@ -314,12 +347,14 @@ class EnvironmentNode(BaseNode):
             self.output_env_instance_attr: self.env_instance
         }
 
+# node_editor.py - оновлений RLAgentNode
 class RLAgentNode(BaseNode):
     def __init__(self, node_id, simulator_app, node_editor_app):
         super().__init__(node_id, simulator_app, node_editor_app)
         self.node_type = NodeType.RL_AGENT
         self.rl_agent_instance = None
         self.output_agent_attr = None
+        self.training_terrains_input = None  # Для вводу кількості територій
         
     def create_attributes(self):
         input_attrs, output_attrs, static_attrs, all_attrs = {}, {}, {}, []
@@ -338,16 +373,43 @@ class RLAgentNode(BaseNode):
         all_attrs.append(input_config_attr)
 
         with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as button_attr:
-            dpg.add_button(label="Train RL Agent", width=150, callback=self.train_rl_callback)
+            # Додаємо ввід для кількості територій
+            dpg.add_text("Training Settings:")
+            self.training_terrains_input = dpg.add_input_int(
+                label="Training Terrains",
+                default_value=200,
+                min_value=1,
+                max_value=100,
+                width=150,
+                tag=f"{self.node_id}_terrains_input"
+            )
+            
+            # Основна кнопка тренування
+            dpg.add_button(
+                label=f"Train RL Agent on Multiple Terrains",
+                width=200,
+                callback=self.train_rl_callback,
+                tag=f"{self.node_id}_train_btn"
+            )
         static_attrs['button'] = button_attr
         all_attrs.append(button_attr)
 
         with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, label="Trained Agent") as output_agent_attr:
-            dpg.add_text("Trained Agent", indent=60)
+            dpg.add_text("General RL Agent", indent=60)
         output_attrs['output_agent'] = output_agent_attr
         output_types[output_agent_attr] = 'RL Agent'
         all_attrs.append(output_agent_attr)
         self.output_agent_attr = output_agent_attr
+
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as static_attr:
+            self.status_tag = f"{self.node_id}_status"
+            dpg.add_text(f"Status: {self.status}", tag=self.status_tag)
+            
+            # Додаємо додаткову інформацію
+            self.training_info_tag = f"{self.node_id}_training_info"
+            dpg.add_text("Ready for training", tag=self.training_info_tag)
+        static_attrs['status'] = static_attr
+        all_attrs.append(static_attr)
 
         delete_attr = self.create_delete_button()
         static_attrs['delete'] = delete_attr
@@ -356,19 +418,63 @@ class RLAgentNode(BaseNode):
         return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
 
     def train_rl_callback(self):
-        env_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'env_instance')
-        config = self.get_input_data('config', 'all')
+        self.update_status("Starting training...", color=(255, 255, 0))
         
-        if not env_node_id:
-            print(f"[{self.node_id}] Error: Connect Environment first!")
-            return
+        try:
+            env_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'env_instance')
+            config = self.get_input_data('config', 'all')
+            
+            if not env_node_id:
+                self.update_status("Error: Connect Environment first!", color=(255, 0, 0))
+                return
 
-        agent = self.simulator.train_rl(env_node_id, self.node_id, settings_config=config)
-        self.rl_agent_instance = agent
+            # Отримуємо кількість територій для тренування
+            training_terrains = 200  # Значення за замовчуванням
+            if self.training_terrains_input and dpg.does_item_exist(self.training_terrains_input):
+                try:
+                    training_terrains = dpg.get_value(self.training_terrains_input)
+                except:
+                    pass
+            
+            # Оновлюємо статус
+            self.update_status(f"Training on {training_terrains} terrains...", color=(255, 255, 0))
+            dpg.set_value(self.training_info_tag, f"Training on {training_terrains} terrains...")
+            
+            # Викликаємо тренування
+            agent = self.simulator.train_rl_with_terrains(
+                env_node_id, 
+                self.node_id, 
+                num_terrains=training_terrains,
+                settings_config=config
+            )
+            
+            if agent:
+                self.rl_agent_instance = agent
+                
+                # Отримуємо статистику
+                if hasattr(agent, 'get_statistics'):
+                    stats = agent.get_statistics()
+                    unique_states = stats.get('unique_states_seen', 'N/A')
+                    avg_reward = stats.get('avg_reward', 0)
+                    
+                    self.update_status(f"Trained successfully!", color=(0, 255, 0))
+                    dpg.set_value(self.training_info_tag, 
+                                f"States learned: {unique_states}, Avg reward: {avg_reward:.2f}")
+                else:
+                    self.update_status(f"Trained on {training_terrains} terrains", color=(0, 255, 0))
+                    dpg.set_value(self.training_info_tag, f"Trained on {training_terrains} terrains")
+            else:
+                self.update_status("Training failed!", color=(255, 0, 0))
+                dpg.set_value(self.training_info_tag, "Training failed")
+                
+        except Exception as e:
+            error_msg = str(e)[:50] + "..." if len(str(e)) > 50 else str(e)
+            self.update_status(f"Error: {error_msg}", color=(255, 0, 0))
+            print(f"Error in train_rl_callback: {e}")
 
     def get_output_data(self):
         return { self.output_agent_attr: self.rl_agent_instance }
-
+    
 class ILAgentNode(BaseNode):
     def __init__(self, node_id, simulator_app, node_editor_app):
         super().__init__(node_id, simulator_app, node_editor_app)
@@ -410,6 +516,12 @@ class ILAgentNode(BaseNode):
         all_attrs.append(output_agent_attr)
         self.output_agent_attr = output_agent_attr
 
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as static_attr:
+            self.status_tag = f"{self.node_id}_status"
+            dpg.add_text(f"Status: {self.status}", tag=self.status_tag)
+        static_attrs['status'] = static_attr
+        all_attrs.append(static_attr)
+
         delete_attr = self.create_delete_button()
         static_attrs['delete'] = delete_attr
         all_attrs.append(delete_attr)
@@ -417,16 +529,51 @@ class ILAgentNode(BaseNode):
         return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
 
     def train_il_callback(self):
+        self.update_status("Initializing...")
+        
         env_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'env_instance')
         teacher_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'teacher_agent')
         config = self.get_input_data('config', 'all')
         
-        if not env_node_id or not teacher_node_id:
-            print(f"[{self.node_id}] Error: Connect Env and Teacher Agent first!")
+        if not env_node_id:
+            self.update_status("Error: Connect Environment first!")
+            print(f"[{self.node_id}] Error: Connect Environment first!")
+            return
+            
+        if not teacher_node_id:
+            self.update_status("Error: Connect Teacher Agent first!")
+            print(f"[{self.node_id}] Error: Connect Teacher Agent first!")
+            return
+        
+        # Check if teacher agent exists in simulator
+        teacher_agent = self.simulator.rl_agents.get(teacher_node_id)
+        if not teacher_agent:
+            self.update_status("Error: Teacher agent not trained!")
+            print(f"[{self.node_id}] Error: Teacher agent not trained!")
             return
 
-        agent = self.simulator.train_il(env_node_id, self.node_id, teacher_node_id, settings_config=config)
-        self.il_agent_instance = agent
+        try:
+            self.update_status("Training IL Agent...")
+            
+            # Train IL agent
+            agent = self.simulator.train_il(env_node_id, self.node_id, teacher_node_id, settings_config=config)
+            
+            if agent:
+                self.il_agent_instance = agent
+                self.update_status("Trained")
+                print(f"[{self.node_id}] IL Agent trained successfully")
+            else:
+                self.update_status("Training failed")
+                print(f"[{self.node_id}] IL Agent training failed")
+            
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            if len(error_msg) > 50:
+                error_msg = error_msg[:50] + "..."
+            self.update_status(error_msg)
+            print(f"[{self.node_id}] Training failed: {e}")
+            import traceback
+            traceback.print_exc()
 
     def get_output_data(self):
         return { self.output_agent_attr: self.il_agent_instance }
@@ -518,7 +665,14 @@ class VisualizerNode(BaseNode):
                 )
             dpg.add_text("Visualization Output", color=(0, 255, 0))
             dpg.add_image(self.texture_tag_terrain, tag=self.image_tag)
-            dpg.add_text("Awaiting data...", tag=self.status_tag)
+            
+            # Додаємо статусний рядок як у агентів
+            self.status_tag = f"{self.node_id}_status"
+            dpg.add_text(f"Status: {self.status}", tag=self.status_tag)
+            
+            # Додаткова інформація
+            self.info_tag = f"{self.node_id}_info"
+            dpg.add_text("Ready for visualization", tag=self.info_tag)
         static_attrs['vis_output'] = vis_output_attr
         all_attrs.append(vis_output_attr)
 
@@ -529,10 +683,12 @@ class VisualizerNode(BaseNode):
         return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
 
     def visualize_terrain_callback(self):
+        self.update_status("Loading terrain...", color=(255, 255, 0))
+        
         env_node_id, env_node_obj = self.editor.find_connected_node_and_data(self.node_id, 'env_instance')
         
         if not env_node_id:
-            dpg.set_value(self.status_tag, "Error: Connect Environment first!")
+            self.update_status("Error: Connect Environment first!", color=(255, 0, 0))
             return
             
         env_instance = self.simulator.get_environment(env_node_id)
@@ -550,27 +706,90 @@ class VisualizerNode(BaseNode):
         if trajectory:
             image_data = render_trajectory(grid, trajectory, scale=scale, target_size=self.window_size, line_width=3)
             status_text = f"{agent_type} Path: {len(trajectory)} steps. Goal: {getattr(env_instance, 'reached_goal', 'N/A')}"
+            self.update_status(f"Showing {agent_type} path", color=(0, 255, 0))
         else:
             image_data = grid_to_image(grid, scale=scale, target_size=self.window_size)
             status_text = f"Terrain: {env_instance.size}x{env_instance.size}"
-
-        dpg.set_value(self.texture_tag_terrain, image_data.flatten())
-        dpg.set_value(self.status_tag, status_text)
+            self.update_status("Showing terrain only", color=(0, 255, 0))
+        
+        try:
+            dpg.set_value(self.texture_tag_terrain, image_data.flatten())
+            dpg.set_value(self.info_tag, status_text)
+        except Exception as e:
+            self.update_status(f"Error rendering: {str(e)[:30]}...", color=(255, 0, 0))
 
     def evaluate_agent_callback(self):
+        self.update_status("Evaluating agent...", color=(255, 255, 0))
+        
         env_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'env_instance')
         agent_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'agent_instance')
 
         if not env_node_id or not agent_node_id:
-            dpg.set_value(self.status_tag, "Error: Connect Environment AND Agent first!")
+            self.update_status("Error: Connect Environment AND Agent first!", color=(255, 0, 0))
             return
             
+        # Determine agent type
         agent_type = "RL" if agent_node_id in self.simulator.rl_agents else "IL"
+        
+        # Get the environment
+        env = self.simulator.get_environment(env_node_id)
+        
+        # RESET the environment completely before evaluation
+        if env:
+            env.reset()
+        
+        # Run fresh evaluation
         results, trajectory = self.simulator.evaluate(env_node_id, agent_node_id, agent_type)
-
-        if results:
-            dpg.set_value(self.status_tag, f"Eval Success: {results['success_rate']:.1f}%, Avg. Reward: {results['avg_reward']:.2f}")
-            self.visualize_terrain_callback()
+        
+        if results and trajectory:
+            success_rate = results['success_rate']
+            avg_reward = results['avg_reward']
+            
+            # Визначаємо колір залежно від успішності
+            if success_rate > 70:
+                status_color = (0, 255, 0)  # Зелений
+            elif success_rate > 30:
+                status_color = (255, 255, 0)  # Жовтий
+            else:
+                status_color = (255, 0, 0)  # Червоний
+            
+            status_text = (f"Eval Success: {success_rate:.1f}%, " 
+                         f"Avg. Reward: {avg_reward:.2f}, "
+                         f"Steps: {len(trajectory)}")
+            
+            self.update_status(status_text, color=status_color)
+            dpg.set_value(self.info_tag, f"{agent_type} Agent Evaluation Complete")
+            
+            # Visualize the NEW trajectory
+            grid = env.get_grid()
+            scale = self.window_size // grid.shape[0]
+            image_data = render_trajectory(grid, trajectory, scale=scale, 
+                                          target_size=self.window_size, line_width=3)
+            try:
+                dpg.set_value(self.texture_tag_terrain, image_data.flatten())
+            except Exception as e:
+                self.update_status(f"Error rendering: {str(e)[:30]}...", color=(255, 0, 0))
+        else:
+            self.update_status("Evaluation failed!", color=(255, 0, 0))
+    
+    # Додайте метод update_status до VisualizerNode
+    def update_status(self, new_status, color=None):
+        self.status = new_status
+        if self.status_tag and dpg.does_item_exist(self.status_tag):
+            try:
+                dpg.set_value(self.status_tag, f"Status: {new_status}")
+                if color:
+                    dpg.configure_item(self.status_tag, color=color)
+                elif "Error" in new_status:
+                    dpg.configure_item(self.status_tag, color=(255, 0, 0))
+                elif "Generating" in new_status or "Training" in new_status or "Loading" in new_status or "Evaluating" in new_status:
+                    dpg.configure_item(self.status_tag, color=(255, 255, 0))
+                elif "Ready" in new_status or "Showing" in new_status or "Complete" in new_status:
+                    dpg.configure_item(self.status_tag, color=(0, 255, 0))
+                else:
+                    dpg.configure_item(self.status_tag, color=(255, 255, 255))
+            except Exception as e:
+                print(f"Error updating status in VisualizerNode: {e}")
 
     def get_output_data(self):
         return {}
