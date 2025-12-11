@@ -1,19 +1,14 @@
-# general_rl_agent.py
 import numpy as np
 import random
 from collections import defaultdict
 
 class GeneralQLearningAgent:
-    
     def __init__(self, alpha=0.1, gamma=0.99, epsilon=0.2):
-        self.alpha = alpha  # learning rate
-        self.gamma = gamma  # discount factor
-        self.epsilon = epsilon  # exploration rate
+        self.alpha = alpha
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.q_table = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         
-        # Використовуємо словник для гнучкості
-        self.q_table = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])  # 4 actions
-        
-        # Статистика тренування
         self.training_stats = {
             'episodes_trained': 0,
             'unique_states_seen': 0,
@@ -33,19 +28,14 @@ class GeneralQLearningAgent:
     def choose_action(self, state, training=True):
         state_key = self.get_state_key(state)
         
-        # Ініціалізуємо стан, якщо він новий
         if state_key not in self.q_table:
             self.q_table[state_key] = [0.0, 0.0, 0.0, 0.0]
         
-        # Exploration під час тренування
         if training and random.random() < self.epsilon:
             return random.randint(0, 3)
         
-        # Exploitation: вибираємо найкращу дію
         q_values = self.q_table[state_key]
         max_q = np.max(q_values)
-        
-        # Якщо кілька дій мають однакове Q-значення, вибираємо випадково
         best_actions = np.where(np.array(q_values) == max_q)[0]
         return random.choice(best_actions)
     
@@ -53,13 +43,11 @@ class GeneralQLearningAgent:
         state_key = self.get_state_key(state)
         next_state_key = self.get_state_key(next_state)
         
-        # Ініціалізуємо стани, якщо потрібно
         if state_key not in self.q_table:
             self.q_table[state_key] = [0.0, 0.0, 0.0, 0.0]
         if next_state_key not in self.q_table:
             self.q_table[next_state_key] = [0.0, 0.0, 0.0, 0.0]
         
-        # Q-learning формула
         current_q = self.q_table[state_key][action]
         
         if done:
@@ -68,7 +56,6 @@ class GeneralQLearningAgent:
             next_max_q = np.max(self.q_table[next_state_key])
             target_q = reward + self.gamma * next_max_q
         
-        # Оновлюємо Q-значення
         self.q_table[state_key][action] = current_q + self.alpha * (target_q - current_q)
     
     def update_epsilon(self, episode, total_episodes):
@@ -81,11 +68,10 @@ class GeneralQLearningAgent:
     def get_action_distribution(self, state):
         state_key = self.get_state_key(state)
         if state_key not in self.q_table:
-            return [0.25, 0.25, 0.25, 0.25]  # Рівномірний розподіл
+            return [0.25, 0.25, 0.25, 0.25]
         
         q_values = np.array(self.q_table[state_key])
-        # Softmax для отримання ймовірностей
-        exp_q = np.exp(q_values - np.max(q_values))  # Для стабільності
+        exp_q = np.exp(q_values - np.max(q_values))
         probs = exp_q / exp_q.sum()
         return probs
     

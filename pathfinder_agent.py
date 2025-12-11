@@ -3,14 +3,12 @@ import heapq
 from collections import deque
 
 class PathFinderAgent:
-    
     def __init__(self, algorithm='astar'):
-        self.algorithm = algorithm  # 'astar', 'bfs', 'dfs'
+        self.algorithm = algorithm
         self.path = []
         self.current_path_index = 0
         self.name = "PathFinder"
         
-        # Статистика
         self.stats = {
             'paths_found': 0,
             'average_path_length': 0,
@@ -59,7 +57,6 @@ class PathFinderAgent:
             current = heapq.heappop(open_set)[1]
             
             if current == goal:
-                # Реконструкція шляху
                 path = []
                 while current in came_from:
                     path.append(current)
@@ -70,10 +67,9 @@ class PathFinderAgent:
             for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
                 neighbor = (current[0] + dx, current[1] + dy)
                 
-                # Перевірка меж і перешкод (0 - вільна клітинка, 5 - стіна)
                 if (0 <= neighbor[0] < grid.shape[0] and 
                     0 <= neighbor[1] < grid.shape[1] and
-                    grid[neighbor[0], neighbor[1]] != 5):  # 5 = WALL
+                    grid[neighbor[0], neighbor[1]] != 5):
                     
                     tentative_g_score = g_score[current] + 1
                     
@@ -83,7 +79,7 @@ class PathFinderAgent:
                         f_score[neighbor] = tentative_g_score + heuristic(neighbor, goal)
                         heapq.heappush(open_set, (f_score[neighbor], neighbor))
         
-        return None  # Шлях не знайдено
+        return None
     
     def _bfs_search(self, grid, start, goal):
         queue = deque([start])
@@ -94,7 +90,6 @@ class PathFinderAgent:
             current = queue.popleft()
             
             if current == goal:
-                # Реконструкція шляху
                 path = []
                 while current is not None:
                     path.append(current)
@@ -106,7 +101,7 @@ class PathFinderAgent:
                 
                 if (0 <= neighbor[0] < grid.shape[0] and 
                     0 <= neighbor[1] < grid.shape[1] and
-                    grid[neighbor[0], neighbor[1]] != 5 and  # 5 = WALL
+                    grid[neighbor[0], neighbor[1]] != 5 and
                     neighbor not in visited):
                     
                     visited.add(neighbor)
@@ -133,7 +128,7 @@ class PathFinderAgent:
                 
                 if (0 <= neighbor[0] < grid.shape[0] and 
                     0 <= neighbor[1] < grid.shape[1] and
-                    grid[neighbor[0], neighbor[1]] != 5 and  # 5 = WALL
+                    grid[neighbor[0], neighbor[1]] != 5 and
                     neighbor not in visited):
                     
                     visited.add(neighbor)
@@ -148,18 +143,17 @@ class PathFinderAgent:
         current = self.path[self.current_path_index]
         next_pos = self.path[self.current_path_index + 1]
         
-        # Визначаємо напрямок руху
         dx = next_pos[0] - current[0]
         dy = next_pos[1] - current[1]
         
         if dx == -1 and dy == 0:
-            action = 0  # Вверх
+            action = 0
         elif dx == 0 and dy == 1:
-            action = 1  # Вправо
+            action = 1
         elif dx == 1 and dy == 0:
-            action = 2  # Вниз
+            action = 2
         elif dx == 0 and dy == -1:
-            action = 3  # Вліво
+            action = 3
         else:
             action = None
         
@@ -169,7 +163,6 @@ class PathFinderAgent:
         return action
     
     def predict_action(self, state):
-        # Для PathFinder, state містить поточну позицію
         if isinstance(state, tuple) and len(state) >= 2:
             current_pos = (state[-2], state[-1])
             return self.get_next_action(current_pos)
@@ -189,10 +182,10 @@ class PathFinderAgent:
         visualization = grid.copy()
         for i, (x, y) in enumerate(self.path):
             if i == 0:
-                visualization[x, y] = 6  # START
+                visualization[x, y] = 6
             elif i == len(self.path) - 1:
-                visualization[x, y] = 2  # GOAL
+                visualization[x, y] = 2
             else:
-                visualization[x, y] = 7  # PATH (спеціальне значення)
+                visualization[x, y] = 7
         
         return visualization

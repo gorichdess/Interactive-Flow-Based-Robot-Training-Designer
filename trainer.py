@@ -2,15 +2,11 @@ import numpy as np
 import time
 import random
 from sklearn.ensemble import RandomForestClassifier
-from tqdm import tqdm
-
-from rl_agent import GeneralQLearningAgent
-from il_agent import ImitationLearner
 
 def train_rl_agent(env, episodes, max_steps=1000, timeout=300):
     start_time = time.time()
     
-    # Create general agent
+    from rl_agent import GeneralQLearningAgent
     agent = GeneralQLearningAgent(alpha=0.1, gamma=0.99, epsilon=0.3)
     
     rewards_history = []
@@ -22,7 +18,6 @@ def train_rl_agent(env, episodes, max_steps=1000, timeout=300):
     
     try:
         for episode in range(episodes):
-            # Change terrain every 50 episodes for diversity
             if episode % 50 == 0:
                 env.generate_random()
                 terrains_trained += 1
@@ -33,28 +28,17 @@ def train_rl_agent(env, episodes, max_steps=1000, timeout=300):
             steps = 0
             
             while not done and steps < max_steps:
-                # Choose action
                 action = agent.choose_action(state, training=True)
-                
-                # Execute action
                 next_state, reward, done = env.step(action)
-                
-                # Learn
                 agent.learn(state, action, reward, next_state, done)
-                
-                # Update
                 state = next_state
                 episode_reward += reward
                 steps += 1
             
-            # Record statistics
             rewards_history.append(episode_reward)
             success_history.append(1 if env.reached_goal else 0)
-            
-            # Update epsilon
             agent.update_epsilon(episode, episodes)
             
-            # Progress every 100 episodes
             if (episode + 1) % 100 == 0:
                 avg_reward = np.mean(rewards_history[-100:]) if len(rewards_history) >= 100 else np.mean(rewards_history)
                 success_rate = np.mean(success_history[-100:]) * 100 if success_history else 0
@@ -65,12 +49,10 @@ def train_rl_agent(env, episodes, max_steps=1000, timeout=300):
                       f"Epsilon: {agent.epsilon:.3f}, "
                       f"Terrains: {terrains_trained}")
         
-        # Final statistics
         train_time = time.time() - start_time
         avg_reward = np.mean(rewards_history)
         success_rate = np.mean(success_history) * 100
         
-        # Update agent statistics
         agent.training_stats['episodes_trained'] = episodes
         agent.training_stats['avg_reward'] = avg_reward
         agent.training_stats['unique_states_seen'] = len(agent.q_table)
@@ -94,7 +76,7 @@ def train_rl_agent(env, episodes, max_steps=1000, timeout=300):
 def train_il_agent(env, expert_agent, episodes, timeout=300):
     start_time = time.time()
     
-    # Create IL agent
+    from il_agent import ImitationLearner
     il_agent = ImitationLearner(env)
     
     print(f"\n=== Training General IL Agent ===")
@@ -102,11 +84,10 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
     
     demonstrations = []
     terrains_used = 0
-    max_demonstrations = 5000  # Limit demonstrations
+    max_demonstrations = 5000
     
     try:
-        for episode in range(min(episodes, 50)):  # Limit episodes
-            # Change terrain every 5 episodes
+        for episode in range(min(episodes, 50)):
             if episode % 5 == 0:
                 env.generate_random()
                 terrains_used += 1
@@ -114,13 +95,10 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
             state = env.reset()
             done = False
             steps = 0
-            
-            # Limit demonstration length
             max_demo_steps = 50
             
             while not done and steps < max_demo_steps and len(demonstrations) < max_demonstrations:
                 try:
-                    # Get action from expert
                     if hasattr(expert_agent, 'choose_action'):
                         action = expert_agent.choose_action(state, training=False)
                     elif hasattr(expert_agent, 'predict_action'):
@@ -128,10 +106,7 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
                     else:
                         action = random.randint(0, 3)
                     
-                    # Add to demonstrations
                     demonstrations.append((state, action))
-                    
-                    # Execute action
                     next_state, _, done = env.step(action)
                     state = next_state
                     steps += 1
@@ -146,17 +121,14 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
         
         print(f"Collected {len(demonstrations)} demonstrations from {terrains_used} terrains")
         
-        # Train model
         if demonstrations:
             X = []
             y = []
             
-            # Limit samples for faster training
             max_samples = min(2000, len(demonstrations))
             demonstrations_subset = random.sample(demonstrations, max_samples) if len(demonstrations) > max_samples else demonstrations
             
             for state, action in demonstrations_subset:
-                # Convert state to vector
                 if isinstance(state, tuple):
                     state_vector = list(state)
                 elif isinstance(state, np.ndarray):
@@ -173,7 +145,6 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
             print(f"Training IL model on {len(X)} samples...")
             train_start = time.time()
             
-            # Use smaller model for faster training
             il_agent.model = RandomForestClassifier(
                 n_estimators=50,
                 max_depth=10,
@@ -186,7 +157,6 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
             il_agent.model.fit(X, y)
             train_time = time.time() - train_start
             
-            # Check accuracy
             train_predictions = il_agent.model.predict(X)
             accuracy = np.mean(train_predictions == y)
             
@@ -230,38 +200,32 @@ def evaluate_agent(env, agent, agent_type="RL", num_episodes=5, max_steps=100):
     
     try:
         for episode in range(num_episodes):
-            # Generate new terrain
             env.generate_random()
             
-            # For PathFinder agent - find path once
             if agent_type == "PathFinder":
                 if hasattr(agent, 'find_path'):
                     grid = env.get_grid()
                     path = agent.find_path(grid, env.start, env.goal)
-                    # Reset environment
                     state = env.reset()
                     
                     if path:
-                        # Execute found path
                         steps = 0
                         done = False
                         episode_reward = 0
                         episode_trajectory = [env.position]
                         
-                        for pos in path[1:]:  # Skip start position
-                            # Determine action to move to next position
+                        for pos in path[1:]:
                             dx = pos[0] - env.position[0]
                             dy = pos[1] - env.position[1]
                             
-                            # Map direction to action
                             if dx == -1 and dy == 0:
-                                action = 0  # Up
+                                action = 0
                             elif dx == 0 and dy == 1:
-                                action = 1  # Right
+                                action = 1
                             elif dx == 1 and dy == 0:
-                                action = 2  # Down
+                                action = 2
                             elif dx == 0 and dy == -1:
-                                action = 3  # Left
+                                action = 3
                             else:
                                 continue
                             
@@ -287,7 +251,6 @@ def evaluate_agent(env, agent, agent_type="RL", num_episodes=5, max_steps=100):
                 else:
                     continue
             else:
-                # Regular evaluation for RL/IL agents
                 state = env.reset()
                 episode_reward = 0
                 done = False
@@ -303,7 +266,7 @@ def evaluate_agent(env, agent, agent_type="RL", num_episodes=5, max_steps=100):
                                 action = agent.predict_action(state)
                             else:
                                 action = random.randint(0, 3)
-                        else:  # IL
+                        else:
                             if hasattr(agent, 'predict_action'):
                                 action = agent.predict_action(state)
                             else:
@@ -318,7 +281,6 @@ def evaluate_agent(env, agent, agent_type="RL", num_episodes=5, max_steps=100):
                     steps += 1
                     episode_trajectory.append(env.position)
                 
-                # Record results
                 total_rewards.append(episode_reward)
                 if env.reached_goal:
                     success_count += 1
@@ -329,7 +291,6 @@ def evaluate_agent(env, agent, agent_type="RL", num_episodes=5, max_steps=100):
                 if episode == 0 and episode_trajectory:
                     trajectories = episode_trajectory
         
-        # Calculate metrics
         eval_time = time.time() - start_time
         success_rate = (success_count / num_episodes) * 100 if num_episodes > 0 else 0
         avg_reward = np.mean(total_rewards) if total_rewards else 0
