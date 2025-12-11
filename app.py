@@ -1,8 +1,9 @@
-# app.py - головний файл програми
 import dearpygui.dearpygui as dpg
 import numpy as np
 from node_editor import NodeEditorApp
-from rl_agent import GeneralQLearningAgent  # Змінився імпорт
+from rl_agent import GeneralQLearningAgent 
+from environment import TerrainEnv, LabyrinthEnv
+from pathfinder_agent import PathFinderAgent
 from il_agent import ImitationLearner
 from trainer import train_rl_agent, train_il_agent, evaluate_agent
 from settings import GRID_SIZE, RL_EPISODES, IL_EPISODES, MAX_STEPS, TIMEOUT
@@ -19,9 +20,10 @@ SETTINGS = GlobalSettings()
 
 class RobotSimulatorApp:
     def __init__(self):
-        self.environments = {}
+        self.environments = {} 
         self.rl_agents = {}
         self.il_agents = {}
+        self.pathfinder_agents = {}
         self.settings = SETTINGS
         
         self.node_editor = NodeEditorApp(self)
@@ -278,9 +280,37 @@ class RobotSimulatorApp:
             import traceback
             traceback.print_exc()
             return None, None
+        
+    def find_path(self, env_id, agent_id):
+        env = self.environments.get(env_id)
+        agent = self.pathfinder_agents.get(agent_id)
+        
+        if not env or not agent:
+            print(f"Missing environment or pathfinder agent. Env: {env_id}, Agent: {agent_id}")
+            return None
+        
+        try:
+            print(f"\n[Simulator] PathFinder agent {agent_id} finding path...")
+            grid = env.get_grid()
+            path = agent.find_path(grid, env.start, env.goal)
+            
+            if path:
+                print(f"Path found! Length: {len(path)}")
+                print(f"Search time: {agent.stats['search_time']:.3f}s")
+            else:
+                print("No path found!")
+            
+            return path
+        except Exception as e:
+            print(f"Error finding path: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
     
     def get_agent(self, agent_id):
-        return self.rl_agents.get(agent_id) or self.il_agents.get(agent_id)
+        return (self.rl_agents.get(agent_id) or 
+                self.il_agents.get(agent_id) or 
+                self.pathfinder_agents.get(agent_id))
         
     def get_environment(self, env_id):
         return self.environments.get(env_id)

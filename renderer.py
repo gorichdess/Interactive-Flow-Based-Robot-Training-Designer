@@ -3,44 +3,39 @@ import numpy as np
 def grid_to_image(grid, scale=20, target_size=600):
     h, w = grid.shape
     
-    # Calculate scaled image size
     scaled_h = h * scale
     scaled_w = w * scale
     
-    # Create scaled image
     img_content = np.zeros((scaled_h, scaled_w, 3), dtype=np.uint8)
     
-    # Define terrain colors (BGR format for OpenCV compatibility)
+    # Оновлені кольори з підтримкою лабіринту
     colors = {
         0: [250, 250, 250],      # Empty - white
         1: [204, 128, 51],       # Rough - tan/brown
         2: [0, 255, 0],          # Goal - green
         3: [128, 128, 128],      # Mountain - gray
         4: [0, 0, 255],          # Swamp - blue
-        -1: [255, 0, 0]          # Start - red (if needed)
+        5: [100, 100, 100],      # Wall - dark gray (для лабіринту)
+        6: [255, 0, 0],          # Start - red
+        7: [255, 255, 0],        # Path - yellow (для візуалізації шляху)
+        -1:[255, 20, 147]         # Start (резервний)
     }
     
-    # Fill each cell with its color
     for i in range(h):
         for j in range(w):
             cell_value = grid[i, j]
-            color = colors.get(cell_value, [255, 0, 0])  # Default red for unknown
+            color = colors.get(cell_value, [255, 0, 0])
             img_content[i*scale:(i+1)*scale, j*scale:(j+1)*scale] = color
     
-    # Resize to target size if needed
     if scaled_h != target_size or scaled_w != target_size:
-        # Center the content on a black background
         final_img = np.zeros((target_size, target_size, 3), dtype=np.uint8)
         
-        # Calculate padding
         pad_h = (target_size - scaled_h) // 2
         pad_w = (target_size - scaled_w) // 2
         
-        # Make sure we don't exceed bounds
         pad_h = max(0, pad_h)
         pad_w = max(0, pad_w)
         
-        # Copy content to center
         end_h = min(pad_h + scaled_h, target_size)
         end_w = min(pad_w + scaled_w, target_size)
         actual_h = end_h - pad_h
@@ -51,7 +46,6 @@ def grid_to_image(grid, scale=20, target_size=600):
     else:
         final_img = img_content
     
-    # Normalize to [0, 1] for DearPyGui
     return final_img.astype(np.float32) / 255.0
 
 def render_trajectory(grid, trajectory, scale=20, target_size=600, line_width=3):

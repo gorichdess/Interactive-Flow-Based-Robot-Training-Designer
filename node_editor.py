@@ -1,14 +1,17 @@
 import dearpygui.dearpygui as dpg
 import numpy as np
 from enum import Enum
-from environment import TerrainEnv
 from settings import WINDOW_SIZE
 from renderer import grid_to_image, render_trajectory
+from environment import TerrainEnv, LabyrinthEnv
+from pathfinder_agent import PathFinderAgent
 
 class NodeType(Enum):
     ENVIRONMENT = "Environment"
+    LABYRINTH = "Labyrinth"
     RL_AGENT = "RL_Agent"
     IL_AGENT = "IL_Agent"
+    PATHFINDER_AGENT = "PathFinder_Agent" 
     SETTINGS = "Settings"
     VISUALIZER = "Visualizer"
     RESULTS = "Results"
@@ -24,6 +27,7 @@ class NodeEditorApp:
         self.node_counter = 0
         self.attribute_to_node = {}
         self.node_objects = {}
+        self.pathfinder_agents = {}
 
     def create_node_editor_window(self):
         if dpg.does_item_exist(self.node_editor_window_tag):
@@ -38,8 +42,10 @@ class NodeEditorApp:
             
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Environment Node", callback=self.add_environment_node)
+                dpg.add_button(label="Labyrinth Node", callback=self.add_labyrinth_node)  # Нова кнопка
                 dpg.add_button(label="RL Agent Node", callback=self.add_rl_agent_node)
                 dpg.add_button(label="IL Agent Node", callback=self.add_il_agent_node)
+                dpg.add_button(label="PathFinder Node", callback=self.add_pathfinder_node)  # Нова кнопка
                 dpg.add_button(label="Visualizer Node", callback=self.add_visualizer_node)
                 dpg.add_button(label="Settings Node", callback=self.add_settings_node)
                 dpg.add_button(label="Results Node", callback=self.add_results_node)
@@ -156,6 +162,12 @@ class NodeEditorApp:
 
     def add_results_node(self):
         self.add_node(ResultsNode, "Results Table", [850, 50])
+
+    def add_labyrinth_node(self):
+        self.add_node(LabyrinthNode, "Labyrinth Environment", [100, 150])
+    
+    def add_pathfinder_node(self):
+        self.add_node(PathFinderNode, "PathFinder Agent", [550, 50])
 
     def delete_node(self, node_id):
         if node_id not in self.nodes:
@@ -345,6 +357,233 @@ class EnvironmentNode(BaseNode):
         return {
             self.output_grid_attr: self.env_instance.get_grid(),
             self.output_env_instance_attr: self.env_instance
+        }
+    
+class LabyrinthNode(BaseNode):
+    def __init__(self, node_id, simulator_app, node_editor_app):
+        super().__init__(node_id, simulator_app, node_editor_app)
+        self.node_type = NodeType.LABYRINTH
+        self.env_instance = LabyrinthEnv(size=self.simulator.settings.GRID_SIZE)
+        self.simulator.environments[self.node_id] = self.env_instance  # Те ж саме сховище
+        self.output_grid_attr = None
+        self.output_env_instance_attr = None
+        
+    def create_attributes(self):
+        input_attrs, output_attrs, static_attrs, all_attrs = {}, {}, {}, []
+        input_types, output_types = {}, {}
+
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, label="Config") as input_config_attr:
+            dpg.add_text("Config (Optional)")
+        input_attrs['config'] = input_config_attr
+        input_types[input_config_attr] = 'Settings'
+        all_attrs.append(input_config_attr)
+        
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as button_attr:
+            dpg.add_button(label="Generate Labyrinth", width=150, callback=self.generate_labyrinth_callback)
+            dpg.add_slider_float(
+                label="Wall Density",
+                default_value=0.2,
+                min_value=0.1,
+                max_value=0.4,
+                width=150,
+                callback=self.update_wall_density,
+                tag=f"{self.node_id}_density"
+            )
+        static_attrs['button'] = button_attr
+        all_attrs.append(button_attr)
+
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, label="Grid Data") as output_grid_attr:
+            dpg.add_text("Grid Data", indent=80)
+        output_attrs['output_grid'] = output_grid_attr
+        output_types[output_grid_attr] = 'Grid Data'
+        all_attrs.append(output_grid_attr)
+        self.output_grid_attr = output_grid_attr
+            
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, label="Env Instance") as output_env_instance_attr:
+            dpg.add_text("Labyrinth Instance", indent=80)
+        output_attrs['output_env_instance'] = output_env_instance_attr
+        output_types[output_env_instance_attr] = 'Environment'  # Те ж саме тип!
+        all_attrs.append(output_env_instance_attr)
+        self.output_env_instance_attr = output_env_instance_attr
+
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as static_attr:
+            self.status_tag = f"{self.node_id}_status"
+            dpg.add_text(f"Status: {self.status}", tag=self.status_tag)
+        static_attrs['status'] = static_attr
+        all_attrs.append(static_attr)
+
+        delete_attr = self.create_delete_button()
+        static_attrs['delete'] = delete_attr
+        all_attrs.append(delete_attr)
+
+        return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
+
+    def generate_labyrinth_callback(self):
+        self.update_status("Generating labyrinth...")
+        try:
+            config = self.get_input_data('config', 'all')
+            grid_size = config.get('grid_size') if config else None
+            if grid_size:
+                self.env_instance.set_size(grid_size)
+            self.env_instance.generate_random()
+            self.update_status("Labyrinth generated")
+        except Exception as e:
+            self.update_status(f"Error: {str(e)}")
+    
+    def update_wall_density(self, sender, app_data):
+        self.env_instance.wall_density = app_data
+
+    def get_output_data(self):
+        return {
+            self.output_grid_attr: self.env_instance.get_grid(),
+            self.output_env_instance_attr: self.env_instance
+        }
+
+class PathFinderNode(BaseNode):
+    def __init__(self, node_id, simulator_app, node_editor_app):
+        super().__init__(node_id, simulator_app, node_editor_app)
+        self.node_type = NodeType.PATHFINDER_AGENT
+        self.pathfinder_instance = PathFinderAgent(algorithm='astar')
+        self.simulator.pathfinder_agents[self.node_id] = self.pathfinder_instance
+        self.output_agent_attr = None
+        self.algorithm_var = 'astar'
+        
+    def create_attributes(self):
+        input_attrs, output_attrs, static_attrs, all_attrs = {}, {}, {}, []
+        input_types, output_types = {}, {}
+
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, label="Environment") as input_env_attr:
+            dpg.add_text("Environment")
+        input_attrs['env_instance'] = input_env_attr
+        input_types[input_env_attr] = 'Environment'
+        all_attrs.append(input_env_attr)
+        
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, label="Grid Data") as input_grid_attr:
+            dpg.add_text("Grid Data (Optional)")
+        input_attrs['grid_data'] = input_grid_attr
+        input_types[input_grid_attr] = 'Grid Data'
+        all_attrs.append(input_grid_attr)
+
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as button_attr:
+            dpg.add_text("PathFinder Settings:")
+            
+            # Вибір алгоритму
+            dpg.add_radio_button(
+                items=["A*", "BFS", "DFS"],
+                default_value="A*",
+                callback=self.update_algorithm,
+                tag=f"{self.node_id}_algorithm"
+            )
+            
+            # Кнопка пошуку шляху
+            dpg.add_button(
+                label="Find Path",
+                width=150,
+                callback=self.find_path_callback,
+                tag=f"{self.node_id}_find_btn"
+            )
+            
+            # Кнопка скидання
+            dpg.add_button(
+                label="Reset Path",
+                width=150,
+                callback=self.reset_path_callback
+            )
+        static_attrs['button'] = button_attr
+        all_attrs.append(button_attr)
+
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, label="PathFinder Agent") as output_agent_attr:
+            dpg.add_text("PathFinder Agent", indent=60)
+        output_attrs['output_agent'] = output_agent_attr
+        output_types[output_agent_attr] = 'PathFinder Agent'
+        all_attrs.append(output_agent_attr)
+        self.output_agent_attr = output_agent_attr
+
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, label="Path Visualization") as output_viz_attr:
+            dpg.add_text("Path Viz", indent=60)
+        output_attrs['output_viz'] = output_viz_attr
+        output_types[output_viz_attr] = 'Grid Data'
+        all_attrs.append(output_viz_attr)
+        self.output_viz_attr = output_viz_attr
+
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as static_attr:
+            self.status_tag = f"{self.node_id}_status"
+            dpg.add_text(f"Status: {self.status}", tag=self.status_tag)
+            
+            # Інформація про шлях
+            self.path_info_tag = f"{self.node_id}_path_info"
+            dpg.add_text("No path found yet", tag=self.path_info_tag)
+        static_attrs['status'] = static_attr
+        all_attrs.append(static_attr)
+
+        delete_attr = self.create_delete_button()
+        static_attrs['delete'] = delete_attr
+        all_attrs.append(delete_attr)
+
+        return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
+
+    def update_algorithm(self, sender, app_data):
+        algorithm_map = {"A*": "astar", "BFS": "bfs", "DFS": "dfs"}
+        self.algorithm_var = algorithm_map.get(app_data, "astar")
+        self.pathfinder_instance.algorithm = self.algorithm_var
+    
+    def find_path_callback(self):
+        self.update_status("Finding path...", color=(255, 255, 0))
+        
+        try:
+            # Отримуємо середовище
+            env_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'env_instance')
+            
+            if not env_node_id:
+                self.update_status("Error: Connect Environment first!", color=(255, 0, 0))
+                return
+            
+            env = self.simulator.get_environment(env_node_id)
+            if not env:
+                self.update_status("Error: Environment not found!", color=(255, 0, 0))
+                return
+            
+            # Отримуємо сітку
+            grid_data = self.get_input_data('grid_data')
+            if grid_data is None:
+                grid = env.get_grid()
+            else:
+                grid = grid_data
+            
+            # Знаходимо шлях
+            path = self.pathfinder_instance.find_path(grid, env.start, env.goal)
+            
+            if path:
+                self.update_status(f"Path found! Length: {len(path)}", color=(0, 255, 0))
+                dpg.set_value(self.path_info_tag, 
+                            f"Algorithm: {self.algorithm_var.upper()}, "
+                            f"Path length: {len(path)}, "
+                            f"Time: {self.pathfinder_instance.stats['search_time']:.3f}s")
+            else:
+                self.update_status("No path found!", color=(255, 0, 0))
+                dpg.set_value(self.path_info_tag, "No path found")
+                
+        except Exception as e:
+            error_msg = str(e)[:50] + "..." if len(str(e)) > 50 else str(e)
+            self.update_status(f"Error: {error_msg}", color=(255, 0, 0))
+    
+    def reset_path_callback(self):
+        self.pathfinder_instance.reset()
+        self.update_status("Path reset", color=(0, 255, 0))
+        dpg.set_value(self.path_info_tag, "Path reset")
+
+    def get_output_data(self):
+        # Отримуємо візуалізацію шляху
+        viz_grid = None
+        env_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'env_instance')
+        if env_node_id:
+            env = self.simulator.get_environment(env_node_id)
+            if env:
+                viz_grid = self.pathfinder_instance.visualize_path(env.get_grid())
+        
+        return {
+            self.output_agent_attr: self.pathfinder_instance,
+            self.output_viz_attr: viz_grid
         }
 
 # node_editor.py - оновлений RLAgentNode
@@ -728,8 +967,14 @@ class VisualizerNode(BaseNode):
             self.update_status("Error: Connect Environment AND Agent first!", color=(255, 0, 0))
             return
             
-        # Determine agent type
-        agent_type = "RL" if agent_node_id in self.simulator.rl_agents else "IL"
+        # Визначаємо тип агента
+        agent_type = "RL"
+        if agent_node_id in self.simulator.rl_agents:
+            agent_type = "RL"
+        elif agent_node_id in self.simulator.il_agents:
+            agent_type = "IL"
+        elif agent_node_id in self.simulator.pathfinder_agents:
+            agent_type = "PathFinder"
         
         # Get the environment
         env = self.simulator.get_environment(env_node_id)
