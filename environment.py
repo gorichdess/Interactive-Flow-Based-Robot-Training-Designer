@@ -1,4 +1,3 @@
-# environment.py
 import numpy as np
 import random
 from enum import Enum
@@ -9,7 +8,7 @@ class TerrainType(Enum):
     GOAL = 2
     MOUNTAIN = 3
     SWAMP = 4
-    WALL = 5  # Для лабіринту
+    WALL = 5  
     START = 6
 
 class BaseEnvironment:
@@ -23,6 +22,18 @@ class BaseEnvironment:
         self.reached_goal = False
         self.evaluation_trajectory = []
         
+    
+    def _is_valid_position(self, pos):
+        if not pos or len(pos) != 2:
+            return False
+        row, col = pos
+        if not (0 <= row < self.size and 0 <= col < self.size):
+            return False
+        # Check if it's not a wall
+        if hasattr(self, 'wall_density'):  # For labyrinth
+            return self.grid[row, col] != TerrainType.WALL.value
+        return True
+    
     def generate_random(self):
         raise NotImplementedError
         
@@ -31,10 +42,24 @@ class BaseEnvironment:
         self.trajectory = [self.start]
         self.evaluation_trajectory = [self.start]
         self.reached_goal = False
+
         return self.get_state()
     
     def set_size(self, size):
         self.size = size
+
+    def set_pos(self, start, goal):
+        if self._is_valid_position(start):
+            self.start = start
+        else:
+            self.start = (0, 0)
+        
+        if self._is_valid_position(goal):
+            self.goal = goal
+        else:
+            self.goal = (self.size - 1, self.size - 1)
+        # Reset position to new start
+        self.position = self.start
         
     def get_state(self):
         raise NotImplementedError
@@ -72,11 +97,15 @@ class TerrainEnv(BaseEnvironment):
                 elif r < 0.2:
                     self.grid[i, j] = TerrainType.SWAMP.value
         
-        self.start = (0, 0)
-        self.grid[0, 0] = TerrainType.START.value
+        # Use existing start/goal if they exist, otherwise defaults
+        if self.start is None:
+            self.start = (0, 0)
+        if self.goal is None:
+            self.goal = (self.size-1, self.size-1)
         
-        self.goal = (self.size-1, self.size-1)
-        self.grid[self.goal[0]][self.goal[1]] = TerrainType.GOAL.value
+        # Update grid markers
+        self.grid[self.start[0], self.start[1]] = TerrainType.START.value
+        self.grid[self.goal[0], self.goal[1]] = TerrainType.GOAL.value
         
         self.reset()
         
@@ -189,56 +218,73 @@ class LabyrinthEnv(BaseEnvironment):
                     self.grid[i, j] = TerrainType.WALL.value
         
         # Стартова позиція
-        self.start = (0, 0)
+        if self.start is None:
+            self.start = (0, 0)
+        if self.goal is None:
+            self.goal = (self.size-1, self.size-1)
+
+        # Find a valid start position (not a wall)
         while self.grid[self.start[0], self.start[1]] == TerrainType.WALL.value:
             self.start = (random.randint(0, self.size-1), random.randint(0, self.size-1))
         self.grid[self.start[0], self.start[1]] = TerrainType.START.value
-        
-        # Цільова позиція
-        self.goal = (self.size-1, self.size-1)
+    
         attempts = 0
+        # Find a valid goal position (not a wall and not start)
         while (self.grid[self.goal[0], self.goal[1]] == TerrainType.WALL.value or 
                self.goal == self.start) and attempts < 100:
             self.goal = (random.randint(0, self.size-1), random.randint(0, self.size-1))
             attempts += 1
         self.grid[self.goal[0], self.goal[1]] = TerrainType.GOAL.value
         
-        # Переконаємось, що є шлях від старту до цілі (спрощена перевірка)
+        # Ensure path exists
         self.ensure_path()
         
         self.reset()
         
     def ensure_path(self):
-        # Спрощений алгоритм створення проходів
+        # Simple path creation algorithm
         current = self.start
+        path_positions = [current]
+        
         while current != self.goal:
             dx = self.goal[0] - current[0]
             dy = self.goal[1] - current[1]
             
-            if abs(dx) > abs(dy):
-                if dx > 0 and current[0] + 1 < self.size:
-                    next_cell = (current[0] + 1, current[1])
-                elif dx < 0 and current[0] - 1 >= 0:
-                    next_cell = (current[0] - 1, current[1])
-                else:
-                    break
-            else:
-                if dy > 0 and current[1] + 1 < self.size:
-                    next_cell = (current[0], current[1] + 1)
-                elif dy < 0 and current[1] - 1 >= 0:
-                    next_cell = (current[0], current[1] - 1)
-                else:
-                    break
+            possible_moves = []
+            if dx > 0:
+                possible_moves.append((1, 0))  # down
+            elif dx < 0:
+                possible_moves.append((-1, 0))  # up
+            if dy > 0:
+                possible_moves.append((0, 1))  # right
+            elif dy < 0:
+                possible_moves.append((0, -1))  # left
             
+            if not possible_moves:
+                break
+                
+            # Choose a move
+            move = random.choice(possible_moves)
+            next_cell = (current[0] + move[0], current[1] + move[1])
+            
+            # Check bounds
+            if not (0 <= next_cell[0] < self.size and 0 <= next_cell[1] < self.size):
+                break
+            
+            # Clear wall if needed
             if self.grid[next_cell[0], next_cell[1]] == TerrainType.WALL.value:
                 self.grid[next_cell[0], next_cell[1]] = TerrainType.EMPTY.value
             
             current = next_cell
+            path_positions.append(current)
+            
+            # Avoid infinite loops
+            if len(path_positions) > self.size * 2:
+                break
     
     def get_state(self):
         i, j = self.position
         
-        # Для лабіринту використовуємо спрощене представлення
         state_features = [
             i,
             j,
@@ -246,16 +292,16 @@ class LabyrinthEnv(BaseEnvironment):
             abs(j - self.goal[1]),
         ]
         
-        # Перевіряємо 4 напрямки (верх, право, низ, ліво)
+        # Check 4 directions for walls
         for di, dj in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
             ni, nj = i + di, j + dj
             if 0 <= ni < self.size and 0 <= nj < self.size:
                 if self.grid[ni, nj] == TerrainType.WALL.value:
-                    state_features.append(1)  # Стіна
+                    state_features.append(1)  # Wall
                 else:
-                    state_features.append(0)  # Вільний простір
+                    state_features.append(0)  # Free space
             else:
-                state_features.append(1)  # Межа - як стіна
+                state_features.append(1)  # Boundary - treat as wall
         
         return tuple(state_features)
     
@@ -264,22 +310,25 @@ class LabyrinthEnv(BaseEnvironment):
         
         old_pos = self.position
         
-        # Рухаємось, якщо клітинка не є стіною
+        # Calculate new position
         new_i, new_j = i, j
         
-        if action == 0:  # Вверх
+        if action == 0:  # Up
             new_i = i - 1
-        elif action == 1:  # Вправо
+        elif action == 1:  # Right
             new_j = j + 1
-        elif action == 2:  # Вниз
+        elif action == 2:  # Down
             new_i = i + 1
-        elif action == 3:  # Вліво
+        elif action == 3:  # Left
             new_j = j - 1
         
-        # Перевірка на межі та стіни
+        # Check bounds and walls
         if (0 <= new_i < self.size and 0 <= new_j < self.size and
             self.grid[new_i, new_j] != TerrainType.WALL.value):
             i, j = new_i, new_j
+        else:
+            # Penalize trying to move into wall
+            return self.get_state(), -2.0, False
         
         self.position = (i, j)
         
@@ -287,7 +336,7 @@ class LabyrinthEnv(BaseEnvironment):
             self.trajectory.append(self.position)
             self.evaluation_trajectory.append(self.position)
         
-        # Нагорода
+        # Reward
         if self.position == self.goal:
             self.reached_goal = True
             reward = 100.0
@@ -296,10 +345,10 @@ class LabyrinthEnv(BaseEnvironment):
         
         self.reached_goal = False
         
-        # Базова нагорода за крок
+        # Base reward for step
         reward = -0.1
         
-        # Бонус за наближення до цілі
+        # Bonus for moving toward goal
         old_distance = abs(old_pos[0] - self.goal[0]) + abs(old_pos[1] - self.goal[1])
         new_distance = abs(i - self.goal[0]) + abs(j - self.goal[1])
         

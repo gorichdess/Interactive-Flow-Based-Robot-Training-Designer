@@ -4,14 +4,13 @@ import random
 from sklearn.ensemble import RandomForestClassifier
 from tqdm import tqdm
 
-# Імпортуємо нового агента
 from rl_agent import GeneralQLearningAgent
 from il_agent import ImitationLearner
 
 def train_rl_agent(env, episodes, max_steps=1000, timeout=300):
     start_time = time.time()
     
-    # Створюємо загального агента
+    # Create general agent
     agent = GeneralQLearningAgent(alpha=0.1, gamma=0.99, epsilon=0.3)
     
     rewards_history = []
@@ -23,7 +22,7 @@ def train_rl_agent(env, episodes, max_steps=1000, timeout=300):
     
     try:
         for episode in range(episodes):
-            # Кожні 50 епізодів змінюємо територію для різноманітності
+            # Change terrain every 50 episodes for diversity
             if episode % 50 == 0:
                 env.generate_random()
                 terrains_trained += 1
@@ -34,28 +33,28 @@ def train_rl_agent(env, episodes, max_steps=1000, timeout=300):
             steps = 0
             
             while not done and steps < max_steps:
-                # Вибираємо дію
+                # Choose action
                 action = agent.choose_action(state, training=True)
                 
-                # Виконуємо дію
+                # Execute action
                 next_state, reward, done = env.step(action)
                 
-                # Вчимося
+                # Learn
                 agent.learn(state, action, reward, next_state, done)
                 
-                # Оновлюємо
+                # Update
                 state = next_state
                 episode_reward += reward
                 steps += 1
             
-            # Записуємо статистику
+            # Record statistics
             rewards_history.append(episode_reward)
             success_history.append(1 if env.reached_goal else 0)
             
-            # Оновлюємо epsilon
+            # Update epsilon
             agent.update_epsilon(episode, episodes)
             
-            # Прогрес кожні 100 епізодів
+            # Progress every 100 episodes
             if (episode + 1) % 100 == 0:
                 avg_reward = np.mean(rewards_history[-100:]) if len(rewards_history) >= 100 else np.mean(rewards_history)
                 success_rate = np.mean(success_history[-100:]) * 100 if success_history else 0
@@ -66,12 +65,12 @@ def train_rl_agent(env, episodes, max_steps=1000, timeout=300):
                       f"Epsilon: {agent.epsilon:.3f}, "
                       f"Terrains: {terrains_trained}")
         
-        # Фінальна статистика
+        # Final statistics
         train_time = time.time() - start_time
         avg_reward = np.mean(rewards_history)
         success_rate = np.mean(success_history) * 100
         
-        # Оновлюємо статистику агента
+        # Update agent statistics
         agent.training_stats['episodes_trained'] = episodes
         agent.training_stats['avg_reward'] = avg_reward
         agent.training_stats['unique_states_seen'] = len(agent.q_table)
@@ -92,11 +91,10 @@ def train_rl_agent(env, episodes, max_steps=1000, timeout=300):
         traceback.print_exc()
         return agent, rewards_history, False, time.time() - start_time
 
-# trainer.py - оновіть функцію train_il_agent
 def train_il_agent(env, expert_agent, episodes, timeout=300):
     start_time = time.time()
     
-    # Створюємо IL агента
+    # Create IL agent
     il_agent = ImitationLearner(env)
     
     print(f"\n=== Training General IL Agent ===")
@@ -104,11 +102,11 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
     
     demonstrations = []
     terrains_used = 0
-    max_demonstrations = 5000  # Обмежуємо кількість демонстрацій
+    max_demonstrations = 5000  # Limit demonstrations
     
     try:
-        for episode in range(min(episodes, 50)):  # Обмежуємо кількість епізодів
-            # Кожні 5 епізодів змінюємо територію
+        for episode in range(min(episodes, 50)):  # Limit episodes
+            # Change terrain every 5 episodes
             if episode % 5 == 0:
                 env.generate_random()
                 terrains_used += 1
@@ -117,12 +115,12 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
             done = False
             steps = 0
             
-            # Обмежуємо довжину демонстрації
-            max_demo_steps = 50  # Зменшили з 100 до 50
+            # Limit demonstration length
+            max_demo_steps = 50
             
             while not done and steps < max_demo_steps and len(demonstrations) < max_demonstrations:
                 try:
-                    # Отримуємо дію від експерта
+                    # Get action from expert
                     if hasattr(expert_agent, 'choose_action'):
                         action = expert_agent.choose_action(state, training=False)
                     elif hasattr(expert_agent, 'predict_action'):
@@ -130,10 +128,10 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
                     else:
                         action = random.randint(0, 3)
                     
-                    # Додаємо до демонстрацій
+                    # Add to demonstrations
                     demonstrations.append((state, action))
                     
-                    # Виконуємо дію
+                    # Execute action
                     next_state, _, done = env.step(action)
                     state = next_state
                     steps += 1
@@ -148,17 +146,17 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
         
         print(f"Collected {len(demonstrations)} demonstrations from {terrains_used} terrains")
         
-        # Тренуємо модель
+        # Train model
         if demonstrations:
             X = []
             y = []
             
-            # Обмежуємо кількість зразків для швидшого тренування
+            # Limit samples for faster training
             max_samples = min(2000, len(demonstrations))
             demonstrations_subset = random.sample(demonstrations, max_samples) if len(demonstrations) > max_samples else demonstrations
             
             for state, action in demonstrations_subset:
-                # Конвертуємо стан у вектор
+                # Convert state to vector
                 if isinstance(state, tuple):
                     state_vector = list(state)
                 elif isinstance(state, np.ndarray):
@@ -175,10 +173,10 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
             print(f"Training IL model on {len(X)} samples...")
             train_start = time.time()
             
-            # Використовуємо меншу модель для швидшого тренування
+            # Use smaller model for faster training
             il_agent.model = RandomForestClassifier(
-                n_estimators=50,  # Зменшили з 100
-                max_depth=10,     # Зменшили з 20
+                n_estimators=50,
+                max_depth=10,
                 min_samples_split=10,
                 min_samples_leaf=4,
                 random_state=42,
@@ -188,7 +186,7 @@ def train_il_agent(env, expert_agent, episodes, timeout=300):
             il_agent.model.fit(X, y)
             train_time = time.time() - train_start
             
-            # Перевіряємо точність
+            # Check accuracy
             train_predictions = il_agent.model.predict(X)
             accuracy = np.mean(train_predictions == y)
             
@@ -232,59 +230,106 @@ def evaluate_agent(env, agent, agent_type="RL", num_episodes=5, max_steps=100):
     
     try:
         for episode in range(num_episodes):
-            # Генеруємо нову територію для кожного епізоду
+            # Generate new terrain
             env.generate_random()
-            state = env.reset()
             
-            episode_reward = 0
-            done = False
-            steps = 0
-            episode_trajectory = [env.position]
-            
-            while not done and steps < max_steps:
-                # Вибираємо дію
-                try:
-                    if agent_type == "RL":
-                        if hasattr(agent, 'choose_action'):
-                            action = agent.choose_action(state, training=False)
-                        elif hasattr(agent, 'predict_action'):
-                            action = agent.predict_action(state)
+            # For PathFinder agent - find path once
+            if agent_type == "PathFinder":
+                if hasattr(agent, 'find_path'):
+                    grid = env.get_grid()
+                    path = agent.find_path(grid, env.start, env.goal)
+                    # Reset environment
+                    state = env.reset()
+                    
+                    if path:
+                        # Execute found path
+                        steps = 0
+                        done = False
+                        episode_reward = 0
+                        episode_trajectory = [env.position]
+                        
+                        for pos in path[1:]:  # Skip start position
+                            # Determine action to move to next position
+                            dx = pos[0] - env.position[0]
+                            dy = pos[1] - env.position[1]
+                            
+                            # Map direction to action
+                            if dx == -1 and dy == 0:
+                                action = 0  # Up
+                            elif dx == 0 and dy == 1:
+                                action = 1  # Right
+                            elif dx == 1 and dy == 0:
+                                action = 2  # Down
+                            elif dx == 0 and dy == -1:
+                                action = 3  # Left
+                            else:
+                                continue
+                            
+                            next_state, reward, done = env.step(action)
+                            episode_reward += reward
+                            steps += 1
+                            episode_trajectory.append(env.position)
+                            
+                            if done:
+                                break
+                        
+                        trajectories = episode_trajectory
+                        total_rewards.append(episode_reward)
+                        if env.reached_goal:
+                            success_count += 1
+                            print(f"  Terrain {episode+1}: SUCCESS in {steps} steps")
                         else:
-                            action = random.randint(0, 3)
-                    else:  # IL
-                        if hasattr(agent, 'predict_action'):
-                            action = agent.predict_action(state)
-                        else:
-                            action = random.randint(0, 3)
-                except Exception as e:
-                    print(f"  Error getting action: {e}")
-                    action = random.randint(0, 3)
-                
-                # Виконуємо дію
-                try:
-                    next_state, reward, done = env.step(action)
-                except Exception as e:
-                    print(f"  Error in step: {e}")
-                    break
-                
-                state = next_state
-                episode_reward += reward
-                steps += 1
-                episode_trajectory.append(env.position)
-            
-            # Записуємо результати
-            total_rewards.append(episode_reward)
-            if hasattr(env, 'reached_goal') and env.reached_goal:
-                success_count += 1
-                print(f"  Terrain {episode+1}: SUCCESS in {steps} steps")
+                            print(f"  Terrain {episode+1}: FAILED after {steps} steps")
+                    else:
+                        print(f"  Terrain {episode+1}: NO PATH FOUND")
+                        total_rewards.append(-100)
+                        env.reset()
+                else:
+                    continue
             else:
-                print(f"  Terrain {episode+1}: FAILED after {steps} steps")
-            
-            # Зберігаємо траєкторію першого епізоду для візуалізації
-            if episode == 0 and episode_trajectory:
-                trajectories = episode_trajectory
+                # Regular evaluation for RL/IL agents
+                state = env.reset()
+                episode_reward = 0
+                done = False
+                steps = 0
+                episode_trajectory = [env.position]
+                
+                while not done and steps < max_steps:
+                    try:
+                        if agent_type == "RL":
+                            if hasattr(agent, 'choose_action'):
+                                action = agent.choose_action(state, training=False)
+                            elif hasattr(agent, 'predict_action'):
+                                action = agent.predict_action(state)
+                            else:
+                                action = random.randint(0, 3)
+                        else:  # IL
+                            if hasattr(agent, 'predict_action'):
+                                action = agent.predict_action(state)
+                            else:
+                                action = random.randint(0, 3)
+                    except Exception as e:
+                        print(f"  Error getting action: {e}")
+                        action = random.randint(0, 3)
+                    
+                    next_state, reward, done = env.step(action)
+                    state = next_state
+                    episode_reward += reward
+                    steps += 1
+                    episode_trajectory.append(env.position)
+                
+                # Record results
+                total_rewards.append(episode_reward)
+                if env.reached_goal:
+                    success_count += 1
+                    print(f"  Terrain {episode+1}: SUCCESS in {steps} steps")
+                else:
+                    print(f"  Terrain {episode+1}: FAILED after {steps} steps")
+                
+                if episode == 0 and episode_trajectory:
+                    trajectories = episode_trajectory
         
-        # Обчислюємо метрики
+        # Calculate metrics
         eval_time = time.time() - start_time
         success_rate = (success_count / num_episodes) * 100 if num_episodes > 0 else 0
         avg_reward = np.mean(total_rewards) if total_rewards else 0
@@ -294,7 +339,6 @@ def evaluate_agent(env, agent, agent_type="RL", num_episodes=5, max_steps=100):
         print(f"  Average reward: {avg_reward:.2f}")
         print(f"  Evaluation time: {eval_time:.2f}s")
         
-        # Переконуємося, що траєкторія не порожня
         if not trajectories:
             trajectories = [env.position] if hasattr(env, 'position') else [(0, 0)]
         
@@ -305,6 +349,5 @@ def evaluate_agent(env, agent, agent_type="RL", num_episodes=5, max_steps=100):
         import traceback
         traceback.print_exc()
         
-        # Повертаємо траєкторію за замовчуванням
         default_trajectory = [(0, 0)] if hasattr(env, 'position') else [(0, 0)]
         return 0, 0, 0, 0, default_trajectory

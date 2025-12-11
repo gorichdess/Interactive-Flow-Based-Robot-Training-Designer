@@ -290,7 +290,34 @@ class BaseNode:
         raise NotImplementedError
         
     def get_input_data(self, input_attribute_name, output_key=None):
-        return self.editor.find_connected_output_value(self.node_id, input_attribute_name, output_key)
+        # First, get the connected node info
+        output_node_id, output_node_obj = self.editor.find_connected_node_and_data(
+            self.node_id, input_attribute_name
+        )
+        
+        if not output_node_obj:
+            return None
+        
+        # Get the output data from the connected node
+        output_data = output_node_obj.get_output_data()
+        
+        if not output_data:
+            return None
+        
+        # Debug print to see what we're getting
+        print(f"[BaseNode.get_input_data] Node {self.node_id} getting input '{input_attribute_name}' from {output_node_id}")
+        print(f"  Output data type: {type(output_data)}")
+        print(f"  Output data: {output_data}")
+        
+        # If output_key is specified, try to get it
+        if output_key:
+            result = output_data.get(output_key)
+            print(f"  Requested key '{output_key}': {result}")
+            return result
+        
+        # If no output_key, return the entire output_data
+        print(f"  Returning entire output_data")
+        return output_data
 
 
 class EnvironmentNode(BaseNode):
@@ -346,12 +373,39 @@ class EnvironmentNode(BaseNode):
     def generate_terrain_callback(self):
         self.update_status("Generating...")
         try:
-            config = self.get_input_data('config', 'all')
-            grid_size = config.get('grid_size') if config else None
+            # Get configuration data
+            config_data = self.get_input_data('config')
+            
+            print(f"[EnvironmentNode {self.node_id}] Received config: {config_data}")
+            
+            # Use provided config or default settings
+            if config_data and isinstance(config_data, dict):
+                grid_size = config_data.get('grid_size') 
+                start_pos = config_data.get('start_position')
+                goal_pos = config_data.get('goal_position')
+                
+                # Apply settings if they exist
+                if grid_size:
+                    print(f"  Setting grid_size to: {grid_size}")
+                    self.env_instance.set_size(grid_size)
+                if start_pos and goal_pos:
+                    print(f"  Setting positions: start={start_pos}, goal={goal_pos}")
+                    self.env_instance.set_pos(start=start_pos, goal=goal_pos)
+            else:
+                # Use simulator defaults if no config is connected
+                grid_size = None
+                start_pos = self.simulator.settings.START_POSITION
+                goal_pos = self.simulator.settings.GOAL_POSITION
+                print(f"  Using default settings")
+            
+            # Generate terrain using simulator method
             self.simulator.generate_terrain(self.node_id, grid_size=grid_size)
+            
             self.update_status("Generated")
         except Exception as e:
             self.update_status(f"Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
     def get_output_data(self):
         return {
@@ -421,14 +475,36 @@ class LabyrinthNode(BaseNode):
     def generate_labyrinth_callback(self):
         self.update_status("Generating labyrinth...")
         try:
-            config = self.get_input_data('config', 'all')
-            grid_size = config.get('grid_size') if config else None
-            if grid_size:
-                self.env_instance.set_size(grid_size)
+            # Get configuration data - FIXED: Get the entire config dict
+            config_data = self.get_input_data('config')
+            
+            print(f"[LabyrinthNode {self.node_id}] Received config: {config_data}")
+            
+            # Use provided config or default settings
+            if config_data and isinstance(config_data, dict):
+                grid_size = config_data.get('grid_size')
+                start_pos = config_data.get('start_position')
+                goal_pos = config_data.get('goal_position')
+                
+                # Apply settings if they exist
+                if grid_size:
+                    print(f"  Setting grid_size to: {grid_size}")
+                    self.env_instance.set_size(grid_size)
+                if start_pos and goal_pos:
+                    print(f"  Setting positions: start={start_pos}, goal={goal_pos}")
+                    self.env_instance.set_pos(start=start_pos, goal=goal_pos)
+            else:
+                # Use simulator defaults if no config is connected
+                print(f"  Using default settings")
+            
+            # Generate labyrinth
             self.env_instance.generate_random()
-            self.update_status("Labyrinth generated")
+            
+            self.update_status("Generated")
         except Exception as e:
             self.update_status(f"Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     def update_wall_density(self, sender, app_data):
         self.env_instance.wall_density = app_data
@@ -446,7 +522,9 @@ class PathFinderNode(BaseNode):
         self.pathfinder_instance = PathFinderAgent(algorithm='astar')
         self.simulator.pathfinder_agents[self.node_id] = self.pathfinder_instance
         self.output_agent_attr = None
+        self.output_path_attr = None
         self.algorithm_var = 'astar'
+        self.found_path = None
         
     def create_attributes(self):
         input_attrs, output_attrs, static_attrs, all_attrs = {}, {}, {}, []
@@ -459,7 +537,7 @@ class PathFinderNode(BaseNode):
         all_attrs.append(input_env_attr)
         
         with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, label="Grid Data") as input_grid_attr:
-            dpg.add_text("Grid Data (Optional)")
+            dpg.add_text("Grid Data")
         input_attrs['grid_data'] = input_grid_attr
         input_types[input_grid_attr] = 'Grid Data'
         all_attrs.append(input_grid_attr)
@@ -467,7 +545,7 @@ class PathFinderNode(BaseNode):
         with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as button_attr:
             dpg.add_text("PathFinder Settings:")
             
-            # Вибір алгоритму
+            # Algorithm selection
             dpg.add_radio_button(
                 items=["A*", "BFS", "DFS"],
                 default_value="A*",
@@ -475,7 +553,7 @@ class PathFinderNode(BaseNode):
                 tag=f"{self.node_id}_algorithm"
             )
             
-            # Кнопка пошуку шляху
+            # Find path button
             dpg.add_button(
                 label="Find Path",
                 width=150,
@@ -483,7 +561,7 @@ class PathFinderNode(BaseNode):
                 tag=f"{self.node_id}_find_btn"
             )
             
-            # Кнопка скидання
+            # Reset button
             dpg.add_button(
                 label="Reset Path",
                 width=150,
@@ -499,18 +577,18 @@ class PathFinderNode(BaseNode):
         all_attrs.append(output_agent_attr)
         self.output_agent_attr = output_agent_attr
 
-        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, label="Path Visualization") as output_viz_attr:
-            dpg.add_text("Path Viz", indent=60)
-        output_attrs['output_viz'] = output_viz_attr
-        output_types[output_viz_attr] = 'Grid Data'
-        all_attrs.append(output_viz_attr)
-        self.output_viz_attr = output_viz_attr
+        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, label="Found Path") as output_path_attr:
+            dpg.add_text("Path", indent=60)
+        output_attrs['output_path'] = output_path_attr
+        output_types[output_path_attr] = 'Path'
+        all_attrs.append(output_path_attr)
+        self.output_path_attr = output_path_attr
 
         with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as static_attr:
             self.status_tag = f"{self.node_id}_status"
             dpg.add_text(f"Status: {self.status}", tag=self.status_tag)
             
-            # Інформація про шлях
+            # Path information
             self.path_info_tag = f"{self.node_id}_path_info"
             dpg.add_text("No path found yet", tag=self.path_info_tag)
         static_attrs['status'] = static_attr
@@ -531,7 +609,7 @@ class PathFinderNode(BaseNode):
         self.update_status("Finding path...", color=(255, 255, 0))
         
         try:
-            # Отримуємо середовище
+            # Get environment
             env_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'env_instance')
             
             if not env_node_id:
@@ -543,21 +621,29 @@ class PathFinderNode(BaseNode):
                 self.update_status("Error: Environment not found!", color=(255, 0, 0))
                 return
             
-            # Отримуємо сітку
+            # Get grid data
             grid_data = self.get_input_data('grid_data')
             if grid_data is None:
                 grid = env.get_grid()
             else:
                 grid = grid_data
             
-            # Знаходимо шлях
-            path = self.pathfinder_instance.find_path(grid, env.start, env.goal)
+            # Clear old path in environment
+            env.trajectory = []
+            env.evaluation_trajectory = []
             
-            if path:
-                self.update_status(f"Path found! Length: {len(path)}", color=(0, 255, 0))
+            # Find path
+            self.found_path = self.pathfinder_instance.find_path(grid, env.start, env.goal)
+            
+            if self.found_path:
+                # Store path in environment for visualization
+                env.trajectory = self.found_path
+                env.evaluation_trajectory = self.found_path
+                
+                self.update_status(f"Path found! Length: {len(self.found_path)}", color=(0, 255, 0))
                 dpg.set_value(self.path_info_tag, 
                             f"Algorithm: {self.algorithm_var.upper()}, "
-                            f"Path length: {len(path)}, "
+                            f"Path length: {len(self.found_path)}, "
                             f"Time: {self.pathfinder_instance.stats['search_time']:.3f}s")
             else:
                 self.update_status("No path found!", color=(255, 0, 0))
@@ -569,21 +655,23 @@ class PathFinderNode(BaseNode):
     
     def reset_path_callback(self):
         self.pathfinder_instance.reset()
-        self.update_status("Path reset", color=(0, 255, 0))
-        dpg.set_value(self.path_info_tag, "Path reset")
-
-    def get_output_data(self):
-        # Отримуємо візуалізацію шляху
-        viz_grid = None
+        self.found_path = None
+        
+        # Clear path from connected environment
         env_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'env_instance')
         if env_node_id:
             env = self.simulator.get_environment(env_node_id)
             if env:
-                viz_grid = self.pathfinder_instance.visualize_path(env.get_grid())
+                env.trajectory = []
+                env.evaluation_trajectory = []
         
+        self.update_status("Path reset", color=(0, 255, 0))
+        dpg.set_value(self.path_info_tag, "Path reset")
+
+    def get_output_data(self):
         return {
             self.output_agent_attr: self.pathfinder_instance,
-            self.output_viz_attr: viz_grid
+            self.output_path_attr: self.found_path
         }
 
 # node_editor.py - оновлений RLAgentNode
@@ -663,6 +751,9 @@ class RLAgentNode(BaseNode):
             env_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'env_instance')
             config = self.get_input_data('config', 'all')
             
+            print(f"[RLAgentNode {self.node_id}] Received config: {config}")
+            print(f"  Env node id: {env_node_id}")
+            
             if not env_node_id:
                 self.update_status("Error: Connect Environment first!", color=(255, 0, 0))
                 return
@@ -675,6 +766,11 @@ class RLAgentNode(BaseNode):
                 except:
                     pass
             
+            # Check if config is valid
+            if not config or not isinstance(config, dict):
+                print(f"Warning: No valid config connected, using defaults")
+                config = None
+            
             # Оновлюємо статус
             self.update_status(f"Training on {training_terrains} terrains...", color=(255, 255, 0))
             dpg.set_value(self.training_info_tag, f"Training on {training_terrains} terrains...")
@@ -684,7 +780,7 @@ class RLAgentNode(BaseNode):
                 env_node_id, 
                 self.node_id, 
                 num_terrains=training_terrains,
-                settings_config=config
+                settings_config=config  # Pass the config dictionary
             )
             
             if agent:
@@ -710,6 +806,8 @@ class RLAgentNode(BaseNode):
             error_msg = str(e)[:50] + "..." if len(str(e)) > 50 else str(e)
             self.update_status(f"Error: {error_msg}", color=(255, 0, 0))
             print(f"Error in train_rl_callback: {e}")
+            import traceback
+            traceback.print_exc()
 
     def get_output_data(self):
         return { self.output_agent_attr: self.rl_agent_instance }
@@ -829,6 +927,8 @@ class SettingsNode(BaseNode):
             'rl_episodes': self.simulator.settings.RL_EPISODES,
             'il_episodes': self.simulator.settings.IL_EPISODES,
             'timeout': self.simulator.settings.TIMEOUT,
+            'start_position': self.simulator.settings.START_POSITION,
+            'goal_position': self.simulator.settings.GOAL_POSITION
         }
         
     def create_attributes(self):
@@ -837,11 +937,75 @@ class SettingsNode(BaseNode):
 
         with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as static_attr_settings:
             dpg.add_text("Simulation Settings", color=(255, 255, 0))
-            self.inputs['grid_size'] = dpg.add_input_int(label="Grid Size", default_value=self.default_settings['grid_size'], min_value=5, max_value=50, min_clamped=True, max_clamped=True, width=150)
-            self.inputs['max_steps'] = dpg.add_input_int(label="Max Steps", default_value=self.default_settings['max_steps'], width=150)
-            self.inputs['rl_episodes'] = dpg.add_input_int(label="RL Episodes", default_value=self.default_settings['rl_episodes'], width=150)
-            self.inputs['il_episodes'] = dpg.add_input_int(label="IL Episodes", default_value=self.default_settings['il_episodes'], width=150)
-            self.inputs['timeout'] = dpg.add_input_int(label="Timeout (s)", default_value=self.default_settings['timeout'], width=150)
+            
+            # Grid Size - single value
+            self.inputs['grid_size'] = dpg.add_input_int(
+                label="Grid Size", 
+                default_value=self.default_settings['grid_size'], 
+                min_value=5, 
+                max_value=50, 
+                min_clamped=True, 
+                max_clamped=True, 
+                width=150
+            )
+            
+            self.inputs['max_steps'] = dpg.add_input_int(
+                label="Max Steps", 
+                default_value=self.default_settings['max_steps'], 
+                width=150
+            )
+            self.inputs['rl_episodes'] = dpg.add_input_int(
+                label="RL Episodes", 
+                default_value=self.default_settings['rl_episodes'], 
+                width=150
+            )
+            self.inputs['il_episodes'] = dpg.add_input_int(
+                label="IL Episodes", 
+                default_value=self.default_settings['il_episodes'], 
+                width=150
+            )
+            self.inputs['timeout'] = dpg.add_input_int(
+                label="Timeout (s)", 
+                default_value=self.default_settings['timeout'], 
+                width=150
+            )
+            
+            # FIX: Create separate X and Y inputs for start position
+            dpg.add_text("Start Position:")
+            with dpg.group(horizontal=True):
+                self.inputs['start_x'] = dpg.add_input_int(
+                    label="X", 
+                    default_value=self.default_settings['start_position'][0], 
+                    min_value=0, 
+                    max_value=49,
+                    width=70
+                )
+                self.inputs['start_y'] = dpg.add_input_int(
+                    label="Y", 
+                    default_value=self.default_settings['start_position'][1], 
+                    min_value=0, 
+                    max_value=49,
+                    width=70
+                )
+            
+            # FIX: Create separate X and Y inputs for goal position
+            dpg.add_text("Goal Position:")
+            with dpg.group(horizontal=True):
+                self.inputs['goal_x'] = dpg.add_input_int(
+                    label="X", 
+                    default_value=self.default_settings['goal_position'][0], 
+                    min_value=0, 
+                    max_value=49,
+                    width=70
+                )
+                self.inputs['goal_y'] = dpg.add_input_int(
+                    label="Y", 
+                    default_value=self.default_settings['goal_position'][1], 
+                    min_value=0, 
+                    max_value=49,
+                    width=70
+                )
+                
         static_attrs['settings'] = static_attr_settings
         all_attrs.append(static_attr_settings)
 
@@ -859,8 +1023,54 @@ class SettingsNode(BaseNode):
         return input_attrs, output_attrs, static_attrs, all_attrs, input_types, output_types
 
     def get_output_data(self):
-        config_data = {key: dpg.get_value(tag) for key, tag in self.inputs.items()}
-        return { self.output_config_attr: config_data, 'all': config_data }
+        config_data = {}
+        
+        # Get simple values
+        simple_keys = ['grid_size', 'max_steps', 'rl_episodes', 'il_episodes', 'timeout']
+        for key in simple_keys:
+            if key in self.inputs:
+                try:
+                    config_data[key] = dpg.get_value(self.inputs[key])
+                except:
+                    config_data[key] = self.default_settings.get(key)
+        
+        # Get start position from separate X and Y inputs
+        try:
+            start_x = dpg.get_value(self.inputs['start_x'])
+            start_y = dpg.get_value(self.inputs['start_y'])
+            config_data['start_position'] = (start_x, start_y)
+        except:
+            config_data['start_position'] = self.default_settings['start_position']
+        
+        # Get goal position from separate X and Y inputs
+        try:
+            goal_x = dpg.get_value(self.inputs['goal_x'])
+            goal_y = dpg.get_value(self.inputs['goal_y'])
+            config_data['goal_position'] = (goal_x, goal_y)
+        except:
+            config_data['goal_position'] = self.default_settings['goal_position']
+        
+        # Debug print to see what settings are being sent
+        print(f"[SettingsNode {self.node_id}] Output config:")
+        print(f"  grid_size: {config_data.get('grid_size')}")
+        print(f"  max_steps: {config_data.get('max_steps')}")
+        print(f"  rl_episodes: {config_data.get('rl_episodes')}")
+        print(f"  il_episodes: {config_data.get('il_episodes')}")
+        print(f"  timeout: {config_data.get('timeout')}")
+        print(f"  start_position: {config_data.get('start_position')}")
+        print(f"  goal_position: {config_data.get('goal_position')}")
+        
+        return { 
+            self.output_config_attr: config_data, 
+            'all': config_data,
+            'grid_size': config_data.get('grid_size'),
+            'max_steps': config_data.get('max_steps'),
+            'rl_episodes': config_data.get('rl_episodes'),
+            'il_episodes': config_data.get('il_episodes'),
+            'timeout': config_data.get('timeout'),
+            'start_position': config_data.get('start_position'),
+            'goal_position': config_data.get('goal_position')
+        }
 
 class VisualizerNode(BaseNode):
     def __init__(self, node_id, simulator_app, node_editor_app):
@@ -882,9 +1092,9 @@ class VisualizerNode(BaseNode):
         all_attrs.append(input_env_attr)
         
         with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, label="Agent") as input_agent_attr:
-            dpg.add_text("Agent (RL or IL)")
+            dpg.add_text("Agent (RL, IL or PathFinder)")
         input_attrs['agent_instance'] = input_agent_attr
-        input_types[input_agent_attr] = 'RL Agent'
+        input_types[input_agent_attr] = 'Agent'
         all_attrs.append(input_agent_attr)
 
         with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static) as button_attr:
@@ -905,11 +1115,11 @@ class VisualizerNode(BaseNode):
             dpg.add_text("Visualization Output", color=(0, 255, 0))
             dpg.add_image(self.texture_tag_terrain, tag=self.image_tag)
             
-            # Додаємо статусний рядок як у агентів
+            # Status line
             self.status_tag = f"{self.node_id}_status"
             dpg.add_text(f"Status: {self.status}", tag=self.status_tag)
             
-            # Додаткова інформація
+            # Additional info
             self.info_tag = f"{self.node_id}_info"
             dpg.add_text("Ready for visualization", tag=self.info_tag)
         static_attrs['vis_output'] = vis_output_attr
@@ -936,15 +1146,35 @@ class VisualizerNode(BaseNode):
         agent_type = "Base"
 
         if agent_node_id:
-            agent_type = "RL" if agent_node_id in self.simulator.rl_agents else "IL"
-            trajectory = getattr(env_instance, 'trajectory', [])
+            # Check agent type
+            if agent_node_id in self.simulator.rl_agents:
+                agent_type = "RL"
+                trajectory = getattr(env_instance, 'trajectory', [])
+            elif agent_node_id in self.simulator.il_agents:
+                agent_type = "IL"
+                trajectory = getattr(env_instance, 'trajectory', [])
+            elif agent_node_id in self.simulator.pathfinder_agents:
+                agent_type = "PathFinder"
+                # For PathFinder, check if there's a found path
+                pathfinder_node = self.editor.node_objects.get(agent_node_id)
+                if pathfinder_node and hasattr(pathfinder_node, 'found_path'):
+                    trajectory = pathfinder_node.found_path
+                else:
+                    trajectory = getattr(env_instance, 'trajectory', [])
 
         grid = env_instance.get_grid()
         scale = self.window_size // grid.shape[0]
         
+        # Render based on agent type
         if trajectory:
-            image_data = render_trajectory(grid, trajectory, scale=scale, target_size=self.window_size, line_width=3)
-            status_text = f"{agent_type} Path: {len(trajectory)} steps. Goal: {getattr(env_instance, 'reached_goal', 'N/A')}"
+            if agent_type == "PathFinder":
+                # Special rendering for PathFinder
+                image_data = self.render_pathfinder_path(grid, trajectory, scale)
+                status_text = f"PathFinder Path: {len(trajectory)} steps"
+            else:
+                image_data = render_trajectory(grid, trajectory, scale=scale, 
+                                              target_size=self.window_size, line_width=3)
+                status_text = f"{agent_type} Path: {len(trajectory)} steps"
             self.update_status(f"Showing {agent_type} path", color=(0, 255, 0))
         else:
             image_data = grid_to_image(grid, scale=scale, target_size=self.window_size)
@@ -957,6 +1187,54 @@ class VisualizerNode(BaseNode):
         except Exception as e:
             self.update_status(f"Error rendering: {str(e)[:30]}...", color=(255, 0, 0))
 
+    def render_pathfinder_path(self, grid, path, scale):
+        # Create base terrain image
+        base_image = grid_to_image(grid, scale, self.window_size)
+        
+        if not path or len(path) < 2:
+            return base_image
+        
+        # Convert to uint8 for drawing
+        img_uint8 = (base_image * 255).astype(np.uint8)
+        
+        # Calculate actual grid size in pixels
+        h, w = grid.shape
+        scaled_h = h * scale
+        scaled_w = w * scale
+        
+        # Calculate padding if image was resized
+        pad_h = (self.window_size - scaled_h) // 2
+        pad_w = (self.window_size - scaled_w) // 2
+        
+        # Draw path with different color for PathFinder
+        for k in range(1, len(path)):
+            prev_pos = path[k-1]
+            curr_pos = path[k]
+            
+            # Convert grid coordinates to pixel coordinates
+            prev_x = pad_w + (prev_pos[1] + 0.5) * scale
+            prev_y = pad_h + (prev_pos[0] + 0.5) * scale
+            curr_x = pad_w + (curr_pos[1] + 0.5) * scale
+            curr_y = pad_h + (curr_pos[0] + 0.5) * scale
+            
+            # Draw line segment
+            num_points = max(abs(int(curr_x - prev_x)), abs(int(curr_y - prev_y))) + 1
+            for t in np.linspace(0, 1, num_points):
+                x = int(prev_x * (1-t) + curr_x * t)
+                y = int(prev_y * (1-t) + curr_y * t)
+                
+                # Draw thick point (cyan color for PathFinder)
+                line_width = 3
+                for dx in range(-line_width//2, line_width//2 + 1):
+                    for dy in range(-line_width//2, line_width//2 + 1):
+                        px = x + dx
+                        py = y + dy
+                        if 0 <= px < self.window_size and 0 <= py < self.window_size:
+                            img_uint8[py, px] = [0, 255, 255]  # Cyan
+        
+        # Convert back to normalized float
+        return img_uint8.astype(np.float32) / 255.0
+
     def evaluate_agent_callback(self):
         self.update_status("Evaluating agent...", color=(255, 255, 0))
         
@@ -967,7 +1245,7 @@ class VisualizerNode(BaseNode):
             self.update_status("Error: Connect Environment AND Agent first!", color=(255, 0, 0))
             return
             
-        # Визначаємо тип агента
+        # Determine agent type
         agent_type = "RL"
         if agent_node_id in self.simulator.rl_agents:
             agent_type = "RL"
@@ -983,33 +1261,54 @@ class VisualizerNode(BaseNode):
         if env:
             env.reset()
         
-        # Run fresh evaluation
-        results, trajectory = self.simulator.evaluate(env_node_id, agent_node_id, agent_type)
+        # Run evaluation
+        if agent_type == "PathFinder":
+            # Special evaluation for PathFinder
+            results = self.evaluate_pathfinder(env_node_id, agent_node_id)
+            trajectory = getattr(env, 'trajectory', [])
+        else:
+            results, trajectory = self.simulator.evaluate(env_node_id, agent_node_id, agent_type)
         
         if results and trajectory:
-            success_rate = results['success_rate']
-            avg_reward = results['avg_reward']
-            
-            # Визначаємо колір залежно від успішності
-            if success_rate > 70:
-                status_color = (0, 255, 0)  # Зелений
-            elif success_rate > 30:
-                status_color = (255, 255, 0)  # Жовтий
+            if agent_type == "PathFinder":
+                success = results.get('success', False)
+                path_length = results.get('path_length', 0)
+                search_time = results.get('search_time', 0)
+                
+                if success:
+                    status_text = f"PathFinder: Found path of {path_length} steps in {search_time:.3f}s"
+                    status_color = (0, 255, 0)
+                else:
+                    status_text = "PathFinder: No path found"
+                    status_color = (255, 0, 0)
             else:
-                status_color = (255, 0, 0)  # Червоний
-            
-            status_text = (f"Eval Success: {success_rate:.1f}%, " 
-                         f"Avg. Reward: {avg_reward:.2f}, "
-                         f"Steps: {len(trajectory)}")
+                success_rate = results['success_rate']
+                avg_reward = results['avg_reward']
+                
+                # Determine color based on success
+                if success_rate > 70:
+                    status_color = (0, 255, 0)
+                elif success_rate > 30:
+                    status_color = (255, 255, 0)
+                else:
+                    status_color = (255, 0, 0)
+                
+                status_text = (f"Eval Success: {success_rate:.1f}%, " 
+                             f"Avg. Reward: {avg_reward:.2f}, "
+                             f"Steps: {len(trajectory)}")
             
             self.update_status(status_text, color=status_color)
             dpg.set_value(self.info_tag, f"{agent_type} Agent Evaluation Complete")
             
-            # Visualize the NEW trajectory
+            # Visualize the trajectory
             grid = env.get_grid()
             scale = self.window_size // grid.shape[0]
-            image_data = render_trajectory(grid, trajectory, scale=scale, 
-                                          target_size=self.window_size, line_width=3)
+            
+            if agent_type == "PathFinder":
+                image_data = self.render_pathfinder_path(grid, trajectory, scale)
+            else:
+                image_data = render_trajectory(grid, trajectory, scale=scale, 
+                                              target_size=self.window_size, line_width=3)
             try:
                 dpg.set_value(self.texture_tag_terrain, image_data.flatten())
             except Exception as e:
@@ -1017,7 +1316,32 @@ class VisualizerNode(BaseNode):
         else:
             self.update_status("Evaluation failed!", color=(255, 0, 0))
     
-    # Додайте метод update_status до VisualizerNode
+    def evaluate_pathfinder(self, env_id, agent_id):
+        env = self.simulator.get_environment(env_id)
+        agent = self.simulator.pathfinder_agents.get(agent_id)
+        
+        if not env or not agent:
+            return {'success': False, 'error': 'Environment or agent not found'}
+        
+        try:
+            grid = env.get_grid()
+            path = agent.find_path(grid, env.start, env.goal)
+            
+            if path:
+                # Store path for visualization
+                env.trajectory = path
+                env.evaluation_trajectory = path
+                
+                return {
+                    'success': True,
+                    'path_length': len(path),
+                    'search_time': agent.stats['search_time']
+                }
+            else:
+                return {'success': False, 'error': 'No path found'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)[:50]}
+
     def update_status(self, new_status, color=None):
         self.status = new_status
         if self.status_tag and dpg.does_item_exist(self.status_tag):

@@ -6,7 +6,7 @@ from environment import TerrainEnv, LabyrinthEnv
 from pathfinder_agent import PathFinderAgent
 from il_agent import ImitationLearner
 from trainer import train_rl_agent, train_il_agent, evaluate_agent
-from settings import GRID_SIZE, RL_EPISODES, IL_EPISODES, MAX_STEPS, TIMEOUT
+from settings import GRID_SIZE, RL_EPISODES, IL_EPISODES, MAX_STEPS, TIMEOUT, START_POSITION, GOAL_POSITION
 
 class GlobalSettings:
     def __init__(self):
@@ -15,6 +15,8 @@ class GlobalSettings:
         self.IL_EPISODES = IL_EPISODES
         self.MAX_STEPS = MAX_STEPS
         self.TIMEOUT = TIMEOUT
+        self.START_POSITION = START_POSITION
+        self.GOAL_POSITION = GOAL_POSITION
 
 SETTINGS = GlobalSettings()
 
@@ -59,17 +61,27 @@ class RobotSimulatorApp:
                 dpg.add_separator()
                 dpg.add_menu_item(label="Clear All Nodes", callback=self.node_editor.clear_all_nodes)
     
-    def generate_terrain(self, env_id, grid_size=None):
-        env = self.environments.get(env_id)
-        if not env:
-            print(f"Error: Environment {env_id} not found.")
-            return None
-            
-        if grid_size is not None and env.size != grid_size:
-             env.set_size(size=grid_size)
-
+    def generate_terrain(self, node_id, grid_size=None):
+        if node_id not in self.environments:
+            print(f"Error: Environment {node_id} not found")
+            return
+        
+        env = self.environments[node_id]
+        
+        # Store current positions before generating
+        current_start = env.start if hasattr(env, 'start') else None
+        current_goal = env.goal if hasattr(env, 'goal') else None
+        
+        # Update size if provided
+        if grid_size:
+            env.set_size(grid_size)
+        
+        # Generate terrain
         env.generate_random()
-        return env.get_grid()
+        
+        # Restore custom positions if they were set
+        if current_start and current_goal:
+            env.set_pos(current_start, current_goal)
 
     def train_rl(self, env_id, agent_id, settings_config=None):
         if self.is_training: return
