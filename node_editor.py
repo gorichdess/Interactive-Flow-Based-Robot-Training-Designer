@@ -361,6 +361,7 @@ class LabyrinthNode(BaseNode):
         super().__init__(node_id, simulator_app, node_editor_app)
         self.node_type = NodeType.LABYRINTH
         self.env_instance = LabyrinthEnv(size=self.simulator.settings.GRID_SIZE)
+        self.env_instance.generate_random()
         self.simulator.environments[self.node_id] = self.env_instance
         self.output_grid_attr = None
         self.output_env_instance_attr = None
@@ -420,6 +421,7 @@ class LabyrinthNode(BaseNode):
                 
                 if grid_size:
                     self.env_instance.set_size(grid_size)
+                    self.env_instance.generate_random()
                 if start_pos and goal_pos:
                     self.env_instance.set_pos(start=start_pos, goal=goal_pos)
             
@@ -1019,7 +1021,7 @@ class VisualizerNode(BaseNode):
 
     def evaluate_agent_callback(self):
         self.update_status("Evaluating agent...", color=(255, 255, 0))
-        
+    
         env_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'env_instance')
         agent_node_id, _ = self.editor.find_connected_node_and_data(self.node_id, 'agent_instance')
 
@@ -1036,60 +1038,19 @@ class VisualizerNode(BaseNode):
             agent_type = "PathFinder"
         
         env = self.simulator.get_environment(env_node_id)
-        
         if env:
             env.reset()
+            env.evaluation_trajectory = []
         
         if agent_type == "PathFinder":
             results = self.evaluate_pathfinder(env_node_id, agent_node_id)
-            trajectory = getattr(env, 'trajectory', [])
+            trajectory = getattr(env, 'evaluation_trajectory', getattr(env, 'trajectory', []))
         else:
             results, trajectory = self.simulator.evaluate(env_node_id, agent_node_id, agent_type)
         
-        if results and trajectory:
-            if agent_type == "PathFinder":
-                success = results.get('success', False)
-                path_length = results.get('path_length', 0)
-                search_time = results.get('search_time', 0)
-                
-                if success:
-                    status_text = f"PathFinder: Found path of {path_length} steps in {search_time:.3f}s"
-                    status_color = (0, 255, 0)
-                else:
-                    status_text = "PathFinder: No path found"
-                    status_color = (255, 0, 0)
-            else:
-                success_rate = results['success_rate']
-                avg_reward = results['avg_reward']
-                
-                if success_rate > 70:
-                    status_color = (0, 255, 0)
-                elif success_rate > 30:
-                    status_color = (255, 255, 0)
-                else:
-                    status_color = (255, 0, 0)
-                
-                status_text = (f"Eval Success: {success_rate:.1f}%, " 
-                             f"Avg. Reward: {avg_reward:.2f}, "
-                             f"Steps: {len(trajectory)}")
-            
-            self.update_status(status_text, color=status_color)
-            dpg.set_value(self.info_tag, f"{agent_type} Agent Evaluation Complete")
-            
-            grid = env.get_grid()
-            scale = self.window_size // grid.shape[0]
-            
-            if agent_type == "PathFinder":
-                image_data = self.render_pathfinder_path(grid, trajectory, scale)
-            else:
-                image_data = render_trajectory(grid, trajectory, scale=scale, 
-                                              target_size=self.window_size, line_width=3)
-            try:
-                dpg.set_value(self.texture_tag_terrain, image_data.flatten())
-            except Exception as e:
-                self.update_status(f"Error rendering: {str(e)[:30]}...", color=(255, 0, 0))
-        else:
-            self.update_status("Evaluation failed!", color=(255, 0, 0))
+        
+        self.visualize_terrain_callback()
+
     
     def evaluate_pathfinder(self, env_id, agent_id):
         env = self.simulator.get_environment(env_id)

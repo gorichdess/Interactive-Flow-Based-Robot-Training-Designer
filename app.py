@@ -103,8 +103,6 @@ class RobotSimulatorApp:
                         
                         with dpg.collapsing_header(label="Navigation"):
                             dpg.add_text("  * Left-click and drag: Move nodes")
-                            dpg.add_text("  * Right-click + drag: Pan view")
-                            dpg.add_text("  * Mouse wheel: Zoom in/out")
                             dpg.add_text("  * Right-Alt + click link: Delete connection")
                             dpg.add_text("  * 'X Delete' button: Remove node")
                 
@@ -147,7 +145,7 @@ class RobotSimulatorApp:
                         with dpg.collapsing_header(label="PathFinder Node"):
                             dpg.add_text("Purpose: Finds optimal paths (A*, BFS, DFS)")
                             dpg.add_text("Inputs: Environment, Grid Data")
-                            dpg.add_text("Outputs: PathFinder Agent, Found Path")
+                            dpg.add_text("Outputs: PathFinder Agent")
                             dpg.add_text("Actions: Find Path, Reset Path")
                             dpg.add_text("Connect From: Environment node")
                             dpg.add_text("Algorithms: A* (default), BFS, DFS")
