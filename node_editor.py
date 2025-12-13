@@ -1111,7 +1111,7 @@ class ResultsNode(BaseNode):
         input_types, output_types = {}, {}
 
         with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, label="Agent") as input_agent_attr:
-            dpg.add_text("Agent (RL or IL)")
+            dpg.add_text("Agent (RL, IL or PathFinder)")
         input_attrs['agent'] = input_agent_attr
         input_types[input_agent_attr] = 'Agent'
         all_attrs.append(input_agent_attr)
@@ -1159,9 +1159,65 @@ class ResultsNode(BaseNode):
             print(f"[{self.node_id}] Error: Connect an Agent first!")
             return
 
-        agent_type = "RL" if agent_node_id in self.simulator.rl_agents else "IL"
-        results, _ = self.simulator.evaluate(env_node_id, agent_node_id, agent_type)
+        # Determine agent type
+        if agent_node_id in self.simulator.rl_agents:
+            agent_type = "RL"
+            results, _ = self.simulator.evaluate(env_node_id, agent_node_id, agent_type)
+        elif agent_node_id in self.simulator.il_agents:
+            agent_type = "IL"
+            results, _ = self.simulator.evaluate(env_node_id, agent_node_id, agent_type)
+        elif agent_node_id in self.simulator.pathfinder_agents:
+            agent_type = "PathFinder"
+            results = self.evaluate_pathfinder(env_node_id, agent_node_id)
+        else:
+            print(f"[{self.node_id}] Error: Unknown agent type!")
+            return
+            
         self.update_results_display(results)
+
+    def evaluate_pathfinder(self, env_id, agent_id):
+        env = self.simulator.get_environment(env_id)
+        agent = self.simulator.pathfinder_agents.get(agent_id)
+        
+        if not env or not agent:
+            return {'success_rate': 0.0, 'avg_reward': 0.0, 'avg_steps': 0.0, 'eval_time': 0.0}
+        
+        try:
+            import time
+            start_time = time.time()
+            
+            grid = env.get_grid()
+            path = agent.find_path(grid, env.start, env.goal)
+            
+            eval_time = time.time() - start_time
+            
+            if path:
+                # Calculate metrics similar to other agents
+                success_rate = 100.0
+                avg_reward = 1.0  # PathFinder always gets maximum reward if path found
+                avg_steps = len(path)
+                
+                return {
+                    'success_rate': success_rate,
+                    'avg_reward': avg_reward,
+                    'avg_steps': avg_steps,
+                    'eval_time': eval_time
+                }
+            else:
+                return {
+                    'success_rate': 0.0,
+                    'avg_reward': 0.0,
+                    'avg_steps': 0.0,
+                    'eval_time': eval_time
+                }
+        except Exception as e:
+            print(f"Error evaluating PathFinder: {e}")
+            return {
+                'success_rate': 0.0,
+                'avg_reward': 0.0,
+                'avg_steps': 0.0,
+                'eval_time': 0.0
+            }
 
     def update_results_display(self, results):
         if results:
